@@ -1,0 +1,9 @@
+/target
+/.vscode
+
+*.log
+*.txt
+
+wallet.db
+xprv.txt
+wallet.toml
