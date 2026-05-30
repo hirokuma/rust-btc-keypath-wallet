@@ -34,6 +34,8 @@ enum Commands {
         /// feerate
         fee_rate: f64,
     },
+    /// Remove wallet files
+    RemoveWalletFiles,
 }
 
 #[tokio::main]
@@ -53,7 +55,7 @@ async fn main() -> Result<()> {
         Some(Commands::Create) => {
             let wallet = BtcWallet::create(config)?;
             println!("wallet created: {}", wallet.config.network);
-        },
+        }
         Some(Commands::Balance) => {
             let wallet = BtcWallet::load(config)?;
             let balance = wallet.balance();
@@ -61,12 +63,12 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Addrs) => {
             todo!();
-        },
+        }
         Some(Commands::NewAddr) => {
             let mut wallet = BtcWallet::load(config)?;
             let new_addr = wallet.new_address();
             println!("new address: {}", new_addr);
-        },
+        }
         Some(Commands::Tx { hex }) => {
             let wallet = BtcWallet::load(config)?;
             let tx = wallet.conv_rawtx_hex(&hex)?;
@@ -81,6 +83,12 @@ async fn main() -> Result<()> {
             wallet.sync()?;
             let txid = wallet.spend(&out_addr, amount, fee_rate)?;
             println!("spend: txid: {}", txid);
+        }
+        Some(Commands::RemoveWalletFiles) => {
+            std::fs::remove_file(&config.wallet_fname)?;
+            println!("remove: {}", config.wallet_fname.to_string_lossy());
+            std::fs::remove_file(&config.privkey_fname)?;
+            println!("remove: {}", config.privkey_fname.to_string_lossy());
         }
     }
 
