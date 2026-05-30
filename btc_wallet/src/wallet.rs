@@ -1,0 +1,322 @@
+use std::{fs::File, io::prelude::*, result::Result, str::FromStr};
+
+use bdk_wallet::{
+    Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
+    SignOptions, Update, Wallet as BdkWallet,
+    bitcoin::{
+        Address, Amount, FeeRate, NetworkKind, Transaction, bip32::{self, Xpriv}, psbt::ExtractTxError
+    },
+    chain::{
+        local_chain::CannotConnectError,
+        spk_client::{FullScanRequestBuilder, SyncRequestBuilder},
+    },
+    descriptor::DescriptorError,
+    error::CreateTxError,
+    rusqlite::{self, Connection, OpenFlags},
+    signer::SignerError,
+    template::{Bip86, DescriptorTemplate},
+};
+use thiserror::Error;
+
+use crate::{
+    config::Config,
+    logger::*,
+};
+
+#[derive(Error, Debug)]
+pub enum WalletError {
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    ConfigError(#[from] rusqlite::Error),
+
+    #[error(transparent)]
+    SQLiteError(#[from] LoadWithPersistError<bdk_wallet::rusqlite::Error>),
+
+    #[error(transparent)]
+    DescError(#[from] DescriptorError),
+
+    #[error(transparent)]
+    PersistError(#[from] CreateWithPersistError<bdk_wallet::rusqlite::Error>),
+
+    #[error(transparent)]
+    Bip32Error(#[from] bip32::Error),
+
+    #[error(transparent)]
+    CreateTxError(#[from] CreateTxError),
+
+    #[error(transparent)]
+    ExtractTxError(#[from] ExtractTxError),
+
+    #[error(transparent)]
+    SignerError(#[from] SignerError),
+
+    #[error("load error: {0}")]
+    LoadError(String),
+
+    #[error("sign error: {0}")]
+    SignError(&'static str),
+}
+
+pub struct Wallet {
+    wallet: PersistedWallet<Connection>,
+    conn: Connection,
+}
+
+impl Wallet {
+    pub fn start_full_scan(&self) -> FullScanRequestBuilder<KeychainKind> {
+        self.wallet.start_full_scan()
+    }
+
+    pub fn start_sync_with_revealed_spks(&self) -> SyncRequestBuilder<(KeychainKind, u32)> {
+        self.wallet.start_sync_with_revealed_spks()
+    }
+
+    pub fn apply_update(&mut self, update: impl Into<Update>) -> Result<(), CannotConnectError> {
+        self.wallet.apply_update(update)
+    }
+
+    pub fn persist(&mut self) {
+        let _ = self.wallet.persist(&mut self.conn);
+    }
+}
+
+impl Wallet {
+    pub fn create(config: &Config, seed: &[u8; 32]) -> Result<Self, WalletError> {
+        if config.privkey_fname.exists() || config.wallet_fname.exists() {
+            return Err(WalletError::LoadError("already exists".to_string()));
+        }
+        let kind = NetworkKind::from(config.network);
+        let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
+        let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
+        let (change_descriptor, change_key_map, _) =
+            Bip86(xprv, KeychainKind::Internal).build(kind)?;
+        let mut conn = Connection::open_with_flags(
+            &config.wallet_fname,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .inspect_err(|e| error!("{e}"))?;
+        let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
+        let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
+        let wallet = BdkWallet::create(external_descriptor_priv, internal_descriptor_priv)
+            .network(config.network)
+            .create_wallet(&mut conn)
+            .inspect_err(|e| error!("{e}"))?;
+
+        let mut f = File::create(&config.privkey_fname)?;
+        writeln!(f, "{}", xprv.to_string())?;
+
+        Ok(Wallet { wallet, conn })
+    }
+
+    pub fn load(config: &Config) -> Result<Self, WalletError> {
+        if !config.privkey_fname.exists() || !config.wallet_fname.exists() {
+            return Err(WalletError::LoadError("file not exists".to_string()));
+        }
+        let mut conn =
+            Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let mut xprv = String::new();
+        let mut f = File::open(&config.privkey_fname)?;
+        f.read_to_string(&mut xprv)?;
+        let xprv = if let Some(first_line) = xprv.lines().next() {
+            first_line
+        } else {
+            return Err(WalletError::LoadError(
+                "fail load privkey text file".to_string(),
+            ));
+        };
+        let xprv: Xpriv = Xpriv::from_str(&xprv)?;
+        let kind = NetworkKind::from(config.network);
+        let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
+        let (change_descriptor, change_key_map, _) =
+            Bip86(xprv, KeychainKind::Internal).build(kind)?;
+        let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
+        let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
+
+        let wallet_opt = BdkWallet::load()
+            .descriptor(KeychainKind::External, Some(external_descriptor_priv))
+            .descriptor(KeychainKind::Internal, Some(internal_descriptor_priv))
+            .extract_keys()
+            .check_network(config.network)
+            .load_wallet(&mut conn)?;
+        let wallet = match wallet_opt {
+            Some(wallet) => wallet,
+            None => {
+                return Err(WalletError::LoadError(
+                    "Wallet::load result is None".to_string(),
+                ));
+            }
+        };
+        Ok(Wallet { wallet, conn })
+    }
+}
+
+impl Wallet {
+    pub fn balance(&self) -> Balance {
+        self.wallet.balance()
+    }
+
+    pub fn new_address(&mut self) -> Address {
+        let addr_info = self
+            .wallet
+            .reveal_next_address(bdk_wallet::KeychainKind::External);
+        debug!(
+            "new_address: {}, index={}",
+            addr_info.address, addr_info.index
+        );
+        addr_info.address
+    }
+
+    pub fn get_address(&self, index: u32) -> Address {
+        let addr_info = self
+            .wallet
+            .peek_address(bdk_wallet::KeychainKind::External, index);
+        debug!(
+            "get_address: {}, index={}",
+            addr_info.address, addr_info.index
+        );
+        addr_info.address
+    }
+
+    pub fn spend(
+        &mut self,
+        out_addr: &Address,
+        amount: Amount,
+        fee_rate: f64,
+    ) -> Result<Transaction, WalletError> {
+        let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
+        let mut builder = self.wallet.build_tx();
+        builder.add_recipient(out_addr.script_pubkey(), amount);
+        // builder.sighash(bitcoin::TapSighashType::SinglePlusAnyoneCanPay.into());
+        builder.fee_rate(fee_rate);
+        let mut psbt = builder.finish()?;
+        let finalized = self.wallet.sign(
+            &mut psbt,
+            SignOptions {
+                trust_witness_utxo: true,
+                ..Default::default()
+            },
+        )?;
+        if !finalized {
+            return Err(WalletError::SignError("sign but not finalized"));
+        }
+        let tx = psbt.extract_tx()?;
+        Ok(tx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bdk_wallet::{
+        AddressInfo, KeychainKind,
+        bitcoin::{
+            Address, Network, Script,
+            bip32::{DerivationPath, Xpriv},
+            key::{TapTweak, XOnlyPublicKey},
+            secp256k1::{PublicKey, Secp256k1},
+        },
+    };
+
+    use super::*;
+
+    #[test]
+    // BIP-86 Test Vectors
+    // https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki#test-vectors
+    fn test_descriptor() {
+        const WALLET_NETWORK: Network = Network::Bitcoin;
+        let mut db = Connection::open_in_memory().expect("Can't open database");
+
+        // Account 0, first receiving address = m/86'/0'/0'/0/0
+        let xprv1 = "tr(xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu/86'/0'/0'/0/*)";
+        // Account 0, first change address = m/86'/0'/0'/1/0
+        let xprv2 = "tr(xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu/86'/0'/0'/1/*)";
+        let wallet_opt = BdkWallet::load()
+            .descriptor(KeychainKind::External, Some(xprv1))
+            .descriptor(KeychainKind::Internal, Some(xprv2))
+            .extract_keys()
+            .check_network(WALLET_NETWORK)
+            .load_wallet(&mut db)
+            .expect("wallet");
+        let wallet = match wallet_opt {
+            Some(wallet) => wallet,
+            None => BdkWallet::create(xprv1, xprv2)
+                .network(WALLET_NETWORK)
+                .create_wallet(&mut db)
+                .expect("wallet"),
+        };
+
+        let address: AddressInfo = wallet.peek_address(KeychainKind::External, 0);
+        assert_eq!(
+            address.to_string(),
+            "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr",
+            "external address"
+        );
+        println!(
+            "Generated external address {} at index {}",
+            address.address, address.index
+        );
+        let address: AddressInfo = wallet.peek_address(KeychainKind::Internal, 0);
+        assert_eq!(
+            address.to_string(),
+            "bc1p3qkhfews2uk44qtvauqyr2ttdsw7svhkl9nkm9s9c3x4ax5h60wqwruhk7",
+            "internal address"
+        );
+        println!(
+            "Generated internal address {} at index {}",
+            address.address, address.index
+        );
+
+        let secp = Secp256k1::new();
+        let xprv = Xpriv::from_str("xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu").expect("Invalid xprv");
+        let derivation_path = DerivationPath::from_str("m/86'/0'/0'/0/0").expect("Invalid path");
+        let derived = xprv
+            .derive_priv(&secp, &derivation_path)
+            .expect("Derivation failed");
+        let secret_key = derived.private_key;
+
+        // 1. internal public key (untweaked)
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let xonly_pubkey = XOnlyPublicKey::from(public_key);
+        assert_eq!(
+            xonly_pubkey.to_string(),
+            "cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115",
+            "x-only pubkey"
+        );
+        println!("Internal x-only pubkey: {}", xonly_pubkey);
+
+        // 2. tweaked pubkey
+        let (tweaked_xonly, _parity) = xonly_pubkey.tap_tweak(&secp, None);
+        assert_eq!(
+            tweaked_xonly.to_string(),
+            "a60869f0dbcf1dc659c9cecbaf8050135ea9e8cdc487053f1dc6880949dc684c",
+            "tweaked x-only pubkey"
+        );
+        println!("Tweaked x-only pubkey: {}", tweaked_xonly);
+
+        // 3. scriptPubKey
+        let mut script_bytes = Vec::with_capacity(1 + 32);
+        script_bytes.push(0x51); // OP_1
+        script_bytes.push(0x20); // length
+        script_bytes.extend_from_slice(&tweaked_xonly.serialize());
+        let script_pubkey = Script::from_bytes(&script_bytes);
+        let script_pubkey_str = hex::encode(script_pubkey.as_bytes());
+        assert_eq!(
+            script_pubkey_str,
+            "5120a60869f0dbcf1dc659c9cecbaf8050135ea9e8cdc487053f1dc6880949dc684c",
+            "scriptPubKey"
+        );
+        println!("scriptPubKey (hex): {}", script_pubkey_str);
+
+        // 4. P2TR address
+        let address = Address::p2tr_tweaked(tweaked_xonly, WALLET_NETWORK);
+        assert_eq!(
+            address.to_string(),
+            "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr",
+            "external address"
+        );
+        println!("P2TR address: {}", address);
+    }
+}

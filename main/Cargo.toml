@@ -1,0 +1,16 @@
+[package]
+name = "bdk_keypath_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+btc_wallet = { path = "../btc_wallet" }
+
+env_logger = "0.11.10"
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }

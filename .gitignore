@@ -3,7 +3,6 @@
 
 *.log
 *.txt
+*.bdk
 
-wallet.db
-xprv.txt
-wallet.toml
+config.toml
