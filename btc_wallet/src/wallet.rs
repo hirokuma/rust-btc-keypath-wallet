@@ -4,7 +4,7 @@ use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
     SignOptions, Update, Wallet as BdkWallet,
     bitcoin::{
-        Address, Amount, FeeRate, NetworkKind, Transaction, bip32::{self, Xpriv}, psbt::ExtractTxError
+        self, Address, Amount, FeeRate, NetworkKind, Transaction, bip32::{self, Xpriv}, psbt::ExtractTxError
     },
     chain::{
         local_chain::CannotConnectError,
@@ -179,22 +179,26 @@ impl Wallet {
         addr_info.address
     }
 
-    pub fn spend(
+    pub fn create_tx(
         &mut self,
         out_addr: &Address,
         amount: Amount,
-        fee_rate: f64,
+        fee_rate: FeeRate,
+        allow_all_sighashes: bool, // for  builder.sighash()
     ) -> Result<Transaction, WalletError> {
-        let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
         let mut builder = self.wallet.build_tx();
         builder.add_recipient(out_addr.script_pubkey(), amount);
-        // builder.sighash(bitcoin::TapSighashType::SinglePlusAnyoneCanPay.into());
+        if allow_all_sighashes {
+            // something experiment
+            builder.sighash(bitcoin::TapSighashType::SinglePlusAnyoneCanPay.into());
+        }
         builder.fee_rate(fee_rate);
         let mut psbt = builder.finish()?;
         let finalized = self.wallet.sign(
             &mut psbt,
             SignOptions {
                 trust_witness_utxo: true,
+                allow_all_sighashes,
                 ..Default::default()
             },
         )?;

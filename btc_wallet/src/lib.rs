@@ -5,9 +5,7 @@ mod logger;
 mod wallet;
 
 use bdk_wallet::bitcoin::{
-    address::{NetworkUnchecked, ParseError},
-    consensus::encode::{FromHexError, deserialize_hex},
-    key::rand::{self, RngCore},
+    FeeRate, address::{NetworkUnchecked, ParseError}, consensus::encode::{FromHexError, deserialize_hex, serialize_hex}, key::rand::{self, RngCore}
 };
 pub use bdk_wallet::{
     Balance,
@@ -148,17 +146,20 @@ impl BtcWallet {
         Ok(self.rpc.get_tx(txid)?)
     }
 
-    pub fn conv_rawtx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {
+    pub fn to_tx(&self, tx_hex: &str) -> Result<Transaction, Error> {
         Ok(deserialize_hex(tx_hex)?)
     }
 
-    pub fn spend(&mut self, out_addr: &str, amount: u64, fee_rate: f64) -> Result<Txid, Error> {
+    pub fn tx_to_string(&self, tx: &Transaction) -> String {
+        serialize_hex(tx)
+    }
+
+    pub fn create_tx(&mut self, out_addr: &str, amount: u64, fee_rate: f64) -> Result<Transaction, Error> {
         let out_addr: Address<NetworkUnchecked> = out_addr.parse()?;
         let out_addr: Address = out_addr.require_network(self.config.network)?;
         let amount = Amount::from_sat(amount);
-        let tx = self.wallet.spend(&out_addr, amount, fee_rate)?;
-        let txid = self.rpc.send_tx(&tx)?;
-        Ok(txid)
+        let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
+        Ok(self.wallet.create_tx(&out_addr, amount, fee_rate, false)?)
     }
 
     pub fn send_tx(&self, tx: &Transaction) -> Result<Txid, Error> {

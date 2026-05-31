@@ -23,7 +23,7 @@ enum Commands {
     /// Decode transaction hex string.
     Tx {
         /// hex string to decode
-        hex: String,
+        tx_hex: String,
     },
     /// Create a spendable transaction.
     Spend {
@@ -33,6 +33,11 @@ enum Commands {
         amount: u64,
         /// feerate
         fee_rate: f64,
+    },
+    /// Send raw transaction.
+    #[command(name = "sendrawtx")]
+    SendRawTx {
+        tx_hex: String,
     },
     /// Remove wallet files
     RemoveWalletFiles,
@@ -69,10 +74,10 @@ async fn main() -> Result<()> {
             let new_addr = wallet.new_address();
             println!("new address: {}", new_addr);
         }
-        Some(Commands::Tx { hex }) => {
+        Some(Commands::Tx { tx_hex }) => {
             let wallet = BtcWallet::load(config)?;
-            let tx = wallet.conv_rawtx_hex(&hex)?;
-            println!("tx: {:#?}", tx);
+            let tx = wallet.to_tx(&tx_hex)?;
+            println!("{:#?}", tx);
         }
         Some(Commands::Spend {
             out_addr,
@@ -80,9 +85,17 @@ async fn main() -> Result<()> {
             fee_rate,
         }) => {
             let mut wallet = BtcWallet::load(config)?;
-            wallet.sync()?;
-            let txid = wallet.spend(&out_addr, amount, fee_rate)?;
-            println!("spend: txid: {}", txid);
+            let tx = wallet.create_tx(&out_addr, amount, fee_rate)?;
+            println!("tx: {:#?}", tx);
+            println!("raw_tx: {}", wallet.tx_to_string(&tx));
+        }
+        Some(Commands::SendRawTx {
+            tx_hex,
+        }) => {
+            let wallet = BtcWallet::load(config)?;
+            let tx = wallet.to_tx(&tx_hex)?;
+            let txid = wallet.send_tx(&tx)?;
+            println!("txid: {}", txid);
         }
         Some(Commands::RemoveWalletFiles) => {
             std::fs::remove_file(&config.wallet_fname)?;
