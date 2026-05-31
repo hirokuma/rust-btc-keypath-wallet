@@ -23,6 +23,7 @@ use crate::{
     logger::*,
 };
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 pub enum WalletError {
     #[error(transparent)]
@@ -47,7 +48,7 @@ pub enum WalletError {
     CreateTxError(#[from] CreateTxError),
 
     #[error(transparent)]
-    ExtractTxError(#[from] ExtractTxError),
+    ExtractTxError(#[from] Box<ExtractTxError>),
 
     #[error(transparent)]
     SignerError(#[from] SignerError),
@@ -105,7 +106,7 @@ impl Wallet {
             .inspect_err(|e| error!("{e}"))?;
 
         let mut f = File::create(&config.privkey_fname)?;
-        writeln!(f, "{}", xprv.to_string())?;
+        writeln!(f, "{}", xprv)?;
 
         Ok(Wallet { wallet, conn })
     }
@@ -126,7 +127,7 @@ impl Wallet {
                 "fail load privkey text file".to_string(),
             ));
         };
-        let xprv: Xpriv = Xpriv::from_str(&xprv)?;
+        let xprv: Xpriv = Xpriv::from_str(xprv)?;
         let kind = NetworkKind::from(config.network);
         let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
         let (change_descriptor, change_key_map, _) =
@@ -205,7 +206,7 @@ impl Wallet {
         if !finalized {
             return Err(WalletError::SignError("sign but not finalized"));
         }
-        let tx = psbt.extract_tx()?;
+        let tx = psbt.extract_tx().map_err(Box::new)?;
         Ok(tx)
     }
 }

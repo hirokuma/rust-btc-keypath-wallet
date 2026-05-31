@@ -109,9 +109,9 @@ impl BtcWallet {
         let mut wallet = if is_create {
             let mut seed: [u8; 32] = [0u8; 32];
             rand::thread_rng().fill_bytes(&mut seed);
-            Wallet::create(&config, &seed)?
+            Wallet::create(config, &seed)?
         } else {
-            Wallet::load(&config)?
+            Wallet::load(config)?
         };
         let rpc = match config.backend {
             config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)?,
