@@ -5,7 +5,10 @@ mod logger;
 mod wallet;
 
 use bdk_wallet::bitcoin::{
-    FeeRate, address::{NetworkUnchecked, ParseError}, consensus::encode::{FromHexError, deserialize_hex, serialize_hex}, key::rand::{self, RngCore}
+    self, FeeRate,
+    address::{NetworkUnchecked, ParseError},
+    consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+    key::rand::{self, RngCore},
 };
 pub use bdk_wallet::{
     Balance,
@@ -44,18 +47,6 @@ pub enum Error {
     #[error("Invalid parameters error: {0}")]
     InvalidParams(&'static str),
 }
-
-// trait _BtcWalletT {
-//     fn initial_sync(&mut self) -> Result<(), Error>;
-//     fn sync(&mut self) -> Result<(), Error>;
-//     fn balance(&self) -> u64;
-//     fn new_address(&mut self) -> String;
-//     fn get_address(&self, index: u32) -> String;
-//     fn get_rawtx_hex(&self) -> String;
-//     fn print_rawtx_hex(&self, tx_hex: &str);
-//     fn spend(&self, out_addr: &str, amount: u64, fee_rate: f64) -> Result<String, Error>;
-//     fn send_rawtx_hex(&self, tx_hex: &str) -> Result<(), Error>;
-// }
 
 pub fn load_config(config_fname: &str) -> Result<Config, Error> {
     Ok(Config::new(config_fname)?)
@@ -154,12 +145,43 @@ impl BtcWallet {
         serialize_hex(tx)
     }
 
-    pub fn create_tx(&mut self, out_addr: &str, amount: u64, fee_rate: f64) -> Result<Transaction, Error> {
+    pub fn create_tx(
+        &mut self,
+        out_addr: &str,
+        amount: u64,
+        fee_rate: f64,
+    ) -> Result<Transaction, Error> {
+        self.create_tx_sighash_type(out_addr, amount, fee_rate, None)
+    }
+
+    pub fn create_tx_single_anypay(
+        &mut self,
+        out_addr: &str,
+        amount: u64,
+        fee_rate: f64,
+    ) -> Result<Transaction, Error> {
+        self.create_tx_sighash_type(
+            out_addr,
+            amount,
+            fee_rate,
+            Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
+        )
+    }
+
+    fn create_tx_sighash_type(
+        &mut self,
+        out_addr: &str,
+        amount: u64,
+        fee_rate: f64,
+        sighash_type: Option<bitcoin::TapSighashType>,
+    ) -> Result<Transaction, Error> {
         let out_addr: Address<NetworkUnchecked> = out_addr.parse()?;
         let out_addr: Address = out_addr.require_network(self.config.network)?;
         let amount = Amount::from_sat(amount);
         let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
-        Ok(self.wallet.create_tx(&out_addr, amount, fee_rate, false)?)
+        Ok(self
+            .wallet
+            .create_tx(&out_addr, amount, fee_rate, sighash_type)?)
     }
 
     pub fn send_tx(&self, tx: &Transaction) -> Result<Txid, Error> {

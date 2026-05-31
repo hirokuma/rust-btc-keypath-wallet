@@ -4,7 +4,9 @@ use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
     SignOptions, Update, Wallet as BdkWallet,
     bitcoin::{
-        self, Address, Amount, FeeRate, NetworkKind, Transaction, bip32::{self, Xpriv}, psbt::ExtractTxError
+        self, Address, Amount, FeeRate, NetworkKind, Transaction,
+        bip32::{self, Xpriv},
+        psbt::ExtractTxError,
     },
     chain::{
         local_chain::CannotConnectError,
@@ -18,10 +20,7 @@ use bdk_wallet::{
 };
 use thiserror::Error;
 
-use crate::{
-    config::Config,
-    logger::*,
-};
+use crate::{config::Config, logger::*};
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
@@ -54,7 +53,7 @@ pub enum WalletError {
     SignerError(#[from] SignerError),
 
     #[error("load error: {0}")]
-    LoadError(String),
+    LoadError(&'static str),
 
     #[error("sign error: {0}")]
     SignError(&'static str),
@@ -86,7 +85,7 @@ impl Wallet {
 impl Wallet {
     pub fn create(config: &Config, seed: &[u8; 32]) -> Result<Self, WalletError> {
         if config.privkey_fname.exists() || config.wallet_fname.exists() {
-            return Err(WalletError::LoadError("already exists".to_string()));
+            return Err(WalletError::LoadError("already exists"));
         }
         let kind = NetworkKind::from(config.network);
         let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
@@ -113,7 +112,7 @@ impl Wallet {
 
     pub fn load(config: &Config) -> Result<Self, WalletError> {
         if !config.privkey_fname.exists() || !config.wallet_fname.exists() {
-            return Err(WalletError::LoadError("file not exists".to_string()));
+            return Err(WalletError::LoadError("file not exists"));
         }
         let mut conn =
             Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
@@ -123,9 +122,7 @@ impl Wallet {
         let xprv = if let Some(first_line) = xprv.lines().next() {
             first_line
         } else {
-            return Err(WalletError::LoadError(
-                "fail load privkey text file".to_string(),
-            ));
+            return Err(WalletError::LoadError("fail load privkey text file"));
         };
         let xprv: Xpriv = Xpriv::from_str(xprv)?;
         let kind = NetworkKind::from(config.network);
@@ -144,9 +141,7 @@ impl Wallet {
         let wallet = match wallet_opt {
             Some(wallet) => wallet,
             None => {
-                return Err(WalletError::LoadError(
-                    "Wallet::load result is None".to_string(),
-                ));
+                return Err(WalletError::LoadError("Wallet::load result is None"));
             }
         };
         Ok(Wallet { wallet, conn })
@@ -185,13 +180,15 @@ impl Wallet {
         out_addr: &Address,
         amount: Amount,
         fee_rate: FeeRate,
-        allow_all_sighashes: bool, // for  builder.sighash()
+        sighash_type: Option<bitcoin::TapSighashType>,
     ) -> Result<Transaction, WalletError> {
         let mut builder = self.wallet.build_tx();
         builder.add_recipient(out_addr.script_pubkey(), amount);
-        if allow_all_sighashes {
+        let mut allow_all_sighashes = false;
+        if let Some(sig_hash_type) = sighash_type {
             // something experiment
-            builder.sighash(bitcoin::TapSighashType::SinglePlusAnyoneCanPay.into());
+            allow_all_sighashes = true;
+            builder.sighash(sig_hash_type.into());
         }
         builder.fee_rate(fee_rate);
         let mut psbt = builder.finish()?;
