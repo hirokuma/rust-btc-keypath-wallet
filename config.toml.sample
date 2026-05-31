@@ -1,8 +1,8 @@
-[btc_wallet]
-
+wallet_fname = "mywallet.bdk"
+privkey_fname = "myprivkey.txt"
 network = "regtest"
-filename = "btc_wallet.db"
 backend = "electrum"
 
-[btc_wallet.electrum]
+[electrum]
+enabled = true
 server = "tcp://127.0.0.1:50001"
