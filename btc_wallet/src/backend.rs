@@ -12,16 +12,13 @@ use crate::{Wallet, config};
 #[derive(Error, Debug)]
 pub enum BackendError {
     #[error(transparent)]
-    ConfigError(#[from] config::ConfigError),
+    Config(#[from] config::ConfigError),
 
     #[error(transparent)]
-    ElectrumError(#[from] electrum_client::Error),
+    Electrum(#[from] electrum_client::Error),
 
     #[error(transparent)]
-    WalletError(#[from] CannotConnectError),
-
-    #[error("Invalid parameters error: {0}")]
-    InvalidParams(String),
+    CannotConnect(#[from] CannotConnectError),
 }
 
 pub trait BackendRpc: Send + Sync {
