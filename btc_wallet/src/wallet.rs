@@ -54,8 +54,8 @@ pub enum WalletError {
     #[error("signed but not finalized")]
     TxFinalize,
 
-    #[error("load error: {0}")]
-    Wallet(&'static str),
+    #[error("wallet file error: {0}")]
+    WalletFile(&'static str),
 }
 
 pub struct Wallet {
@@ -84,7 +84,7 @@ impl Wallet {
 impl Wallet {
     pub fn create(config: &Config, seed: &[u8; 32]) -> Result<Self, WalletError> {
         if config.privkey_fname.exists() || config.wallet_fname.exists() {
-            return Err(WalletError::Wallet("already exists"));
+            return Err(WalletError::WalletFile("wallet file or key file already exists"));
         }
         let kind = NetworkKind::from(config.network);
         let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
@@ -111,7 +111,7 @@ impl Wallet {
 
     pub fn load(config: &Config) -> Result<Self, WalletError> {
         if !config.privkey_fname.exists() || !config.wallet_fname.exists() {
-            return Err(WalletError::Wallet("file not exists"));
+            return Err(WalletError::WalletFile("wallet file or key file not exists"));
         }
         let mut conn =
             Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
@@ -121,7 +121,7 @@ impl Wallet {
         let xprv = if let Some(first_line) = xprv.lines().next() {
             first_line
         } else {
-            return Err(WalletError::Wallet("fail load privkey text file"));
+            return Err(WalletError::WalletFile("fail load privkey text file"));
         };
         let xprv: Xpriv = Xpriv::from_str(xprv)?;
         let kind = NetworkKind::from(config.network);
@@ -140,7 +140,7 @@ impl Wallet {
         let wallet = match wallet_opt {
             Some(wallet) => wallet,
             None => {
-                return Err(WalletError::Wallet("Wallet::load result is None"));
+                return Err(WalletError::WalletFile("Wallet::load result is None"));
             }
         };
         Ok(Wallet { wallet, conn })
