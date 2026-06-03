@@ -158,20 +158,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bdk_keypath_example"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "btc_wallet",
- "clap",
- "env_logger",
- "hex",
- "serde",
- "tokio",
- "toml",
-]
-
-[[package]]
 name = "bdk_wallet"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -259,12 +245,14 @@ dependencies = [
  "anyhow",
  "bdk_electrum",
  "bdk_wallet",
+ "clap",
  "env_logger",
  "hex",
  "log",
  "serde",
  "tempfile",
  "thiserror",
+ "tokio",
  "toml",
  "tracing-log",
 ]

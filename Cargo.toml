@@ -2,11 +2,11 @@
 resolver = "3"
 
 members = [
-    "btc_wallet", "main",
+    "btc_wallet",
 ]
 
 default-members = [
-    "btc_wallet", "main",
+    "btc_wallet",
 ]
 
 [workspace.dependencies]

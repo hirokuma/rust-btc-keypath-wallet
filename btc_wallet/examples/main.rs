@@ -36,9 +36,7 @@ enum Commands {
     },
     /// Send raw transaction.
     #[command(name = "sendrawtx")]
-    SendRawTx {
-        tx_hex: String,
-    },
+    SendRawTx { tx_hex: String },
     /// Remove wallet files
     RemoveWalletFiles,
 }
@@ -89,9 +87,7 @@ async fn main() -> Result<()> {
             println!("tx: {:#?}", tx);
             println!("raw_tx: {}", wallet.tx_to_string(&tx));
         }
-        Some(Commands::SendRawTx {
-            tx_hex,
-        }) => {
+        Some(Commands::SendRawTx { tx_hex }) => {
             let wallet = BtcWallet::load(config)?;
             let tx = wallet.to_tx(&tx_hex)?;
             let txid = wallet.send_tx(&tx)?;
