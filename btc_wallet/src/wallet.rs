@@ -22,41 +22,40 @@ use thiserror::Error;
 
 use crate::{config::Config, logger::*};
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 pub enum WalletError {
     #[error(transparent)]
-    IoError(#[from] std::io::Error),
+    File(#[from] std::io::Error),
 
     #[error(transparent)]
-    ConfigError(#[from] rusqlite::Error),
+    CreateWallet(#[from] CreateWithPersistError<bdk_wallet::rusqlite::Error>),
 
     #[error(transparent)]
-    SQLiteError(#[from] LoadWithPersistError<bdk_wallet::rusqlite::Error>),
+    LoadWallet(#[from] LoadWithPersistError<bdk_wallet::rusqlite::Error>),
 
     #[error(transparent)]
-    DescError(#[from] DescriptorError),
+    OpenWallet(#[from] rusqlite::Error),
 
     #[error(transparent)]
-    PersistError(#[from] CreateWithPersistError<bdk_wallet::rusqlite::Error>),
+    Descriptor(#[from] DescriptorError),
 
     #[error(transparent)]
-    Bip32Error(#[from] bip32::Error),
+    Bip32(#[from] bip32::Error),
 
     #[error(transparent)]
-    CreateTxError(#[from] CreateTxError),
+    CreateTx(#[from] CreateTxError),
 
     #[error(transparent)]
-    ExtractTxError(#[from] Box<ExtractTxError>),
+    ExtractTx(#[from] Box<ExtractTxError>),
 
     #[error(transparent)]
-    SignerError(#[from] SignerError),
+    Signer(#[from] SignerError),
 
-    #[error("load error: {0}")]
-    LoadError(&'static str),
+    #[error("signed but not finalized")]
+    TxFinalize,
 
-    #[error("sign error: {0}")]
-    SignError(&'static str),
+    #[error("wallet file error: {0}")]
+    WalletFile(&'static str),
 }
 
 pub struct Wallet {
@@ -85,7 +84,7 @@ impl Wallet {
 impl Wallet {
     pub fn create(config: &Config, seed: &[u8; 32]) -> Result<Self, WalletError> {
         if config.privkey_fname.exists() || config.wallet_fname.exists() {
-            return Err(WalletError::LoadError("already exists"));
+            return Err(WalletError::WalletFile("wallet file or key file already exists"));
         }
         let kind = NetworkKind::from(config.network);
         let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
@@ -112,7 +111,7 @@ impl Wallet {
 
     pub fn load(config: &Config) -> Result<Self, WalletError> {
         if !config.privkey_fname.exists() || !config.wallet_fname.exists() {
-            return Err(WalletError::LoadError("file not exists"));
+            return Err(WalletError::WalletFile("wallet file or key file not exists"));
         }
         let mut conn =
             Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
@@ -122,7 +121,7 @@ impl Wallet {
         let xprv = if let Some(first_line) = xprv.lines().next() {
             first_line
         } else {
-            return Err(WalletError::LoadError("fail load privkey text file"));
+            return Err(WalletError::WalletFile("fail load privkey text file"));
         };
         let xprv: Xpriv = Xpriv::from_str(xprv)?;
         let kind = NetworkKind::from(config.network);
@@ -141,7 +140,7 @@ impl Wallet {
         let wallet = match wallet_opt {
             Some(wallet) => wallet,
             None => {
-                return Err(WalletError::LoadError("Wallet::load result is None"));
+                return Err(WalletError::WalletFile("Wallet::load result is None"));
             }
         };
         Ok(Wallet { wallet, conn })
@@ -201,7 +200,7 @@ impl Wallet {
             },
         )?;
         if !finalized {
-            return Err(WalletError::SignError("sign but not finalized"));
+            return Err(WalletError::TxFinalize);
         }
         let tx = psbt.extract_tx().map_err(Box::new)?;
         Ok(tx)

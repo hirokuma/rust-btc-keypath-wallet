@@ -27,25 +27,22 @@ use crate::{
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    ConfigError(#[from] ConfigError),
+    Config(#[from] ConfigError),
 
     #[error(transparent)]
-    BackendError(#[from] BackendError),
+    Backend(#[from] BackendError),
 
     #[error(transparent)]
-    WalletError(#[from] WalletError),
+    Wallet(#[from] WalletError),
 
     #[error(transparent)]
-    ConvError(#[from] FromHexError),
+    Convert(#[from] FromHexError),
 
     #[error(transparent)]
-    ParseError(#[from] ParseError),
+    Parse(#[from] ParseError),
 
-    #[error("File error: {0}")]
-    FileError(&'static str),
-
-    #[error("Invalid parameters error: {0}")]
-    InvalidParams(&'static str),
+    #[error("file existance error: {0}")]
+    FileExistance(&'static str),
 }
 
 pub fn load_config(config_fname: &str) -> Result<Config, Error> {
@@ -65,7 +62,7 @@ impl BtcWallet {
         } else if !config.privkey_fname.exists() && !config.wallet_fname.exists() {
             true
         } else {
-            return Err(Error::InvalidParams(""));
+            return Err(Error::FileExistance("some wallet file not exist"));
         };
         let (rpc, wallet) = Self::init(&config, is_create)?;
         debug!("create_or_load done");
@@ -113,10 +110,6 @@ impl BtcWallet {
 }
 
 impl BtcWallet {
-    // pub fn initial_sync(&mut self) -> Result<(), Error> {
-    //     Ok(self.rpc.full_scan(&mut self.wallet)?)
-    // }
-
     pub fn sync(&mut self) -> Result<(), Error> {
         Ok(self.rpc.sync(&mut self.wallet)?)
     }

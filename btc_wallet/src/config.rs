@@ -7,13 +7,13 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error(transparent)]
-    IoError(#[from] std::io::Error),
+    File(#[from] std::io::Error),
 
     #[error(transparent)]
-    TomlError(#[from] toml::de::Error),
+    Toml(#[from] toml::de::Error),
 
     #[error("Invalid parameters: {0}")]
-    InvalidParams(String),
+    InvalidParams(&'static str),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -46,7 +46,7 @@ impl Config {
         f.read_to_string(&mut settings)?;
         let data: Config = toml::from_str(&settings)?;
         if !data.electrum.enabled {
-            return Err(ConfigError::InvalidParams("no backend enabled".to_string()));
+            return Err(ConfigError::InvalidParams("no backend enabled"));
         }
         Ok(data)
     }
