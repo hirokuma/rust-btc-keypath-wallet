@@ -41,8 +41,7 @@ enum Commands {
     RemoveWalletFiles,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     env_logger::init();
 
     let cli = Cli::parse();
