@@ -46,7 +46,8 @@ pub enum Error {
 }
 
 pub fn load_config(config_fname: &str) -> Result<Config, Error> {
-    Ok(Config::new(config_fname)?)
+    Ok(Config::new(config_fname)
+        .inspect_err(|e| trace!("fail load_config({}): {}", config_fname, e))?)
 }
 
 pub struct BtcWallet {
@@ -62,7 +63,8 @@ impl BtcWallet {
         } else if !config.privkey_fname.exists() && !config.wallet_fname.exists() {
             true
         } else {
-            return Err(Error::FileExistance("some wallet file not exist"));
+            trace!("invalid wallet files");
+            return Err(Error::FileExistance("invalid wallet files"));
         };
         let (rpc, wallet) = Self::init(&config, is_create)?;
         debug!("create_or_load done");

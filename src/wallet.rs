@@ -95,13 +95,13 @@ impl Wallet {
             &config.wallet_fname,
             OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
         )
-        .inspect_err(|e| error!("{e}"))?;
+        .inspect_err(|e| trace!("{e}"))?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
         let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
         let wallet = BdkWallet::create(external_descriptor_priv, internal_descriptor_priv)
             .network(config.network)
             .create_wallet(&mut conn)
-            .inspect_err(|e| error!("{e}"))?;
+            .inspect_err(|e| trace!("{e}"))?;
 
         let mut f = File::create(&config.privkey_fname)?;
         writeln!(f, "{}", xprv)?;

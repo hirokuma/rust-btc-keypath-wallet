@@ -4,6 +4,8 @@ use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::logger::trace;
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error(transparent)]
@@ -42,10 +44,14 @@ pub struct ElectrumConfig {
 impl Config {
     pub fn new(fname: &str) -> Result<Config, ConfigError> {
         let mut settings = String::new();
-        let mut f = File::open(fname)?;
-        f.read_to_string(&mut settings)?;
-        let data: Config = toml::from_str(&settings)?;
+        let mut f =
+            File::open(fname).inspect_err(|e| trace!("fail open file({}): {}", fname, e))?;
+        f.read_to_string(&mut settings)
+            .inspect_err(|e| trace!("fail read file({}): {}", fname, e))?;
+        let data: Config = toml::from_str(&settings)
+            .inspect_err(|e| trace!("fail convert config from TOML: {e}"))?;
         if !data.electrum.enabled {
+            trace!("no backend enabled");
             return Err(ConfigError::InvalidParams("no backend enabled"));
         }
         Ok(data)

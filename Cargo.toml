@@ -1,12 +1,15 @@
 [package]
 name = "btc_wallet"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 
 [features]
 default = ["log"]
 log = []
 tracing = []
+
+[[example]]
+name = "main"
 
 [dependencies]
 bdk_wallet = { version = "3.0.0", features = ["rusqlite"] }
@@ -17,6 +20,7 @@ hex = "0.4.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 toml = "1.1.2"
+tracing = "0.1.44"
 
 [dev-dependencies]
 anyhow = "1.0.102"
@@ -24,3 +28,4 @@ clap = { version = "4.6.1", features = ["derive"] }
 env_logger = "0.11.10"
 tempfile = "3.27.0"
 tracing-log = "0.2.0"
+tracing-subscriber = "0.3.23"
