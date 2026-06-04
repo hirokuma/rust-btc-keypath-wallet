@@ -2,6 +2,12 @@ use anyhow::Result;
 use btc_wallet::BtcWallet;
 use clap::{CommandFactory, Parser, Subcommand};
 
+#[cfg(not(feature = "tracing"))]
+use log::*;
+
+#[cfg(feature = "tracing")]
+use tracing::*;
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -42,11 +48,25 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    env_logger::init();
+    #[cfg(not(feature = "tracing"))]
+    {
+        env_logger::builder()
+            .filter(None, log::LevelFilter::Trace)
+            .init();
+        log::info!("bdk_wallet example");
+    }
+    #[cfg(feature = "tracing")]
+    {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .init();
+        tracing::info!("bdk_wallet example");
+    }
 
     let cli = Cli::parse();
 
-    let config = btc_wallet::load_config("./config.toml")?;
+    let config =
+        btc_wallet::load_config("./config.toml").inspect_err(|e| error!("load_config: {e}"))?;
 
     match cli.command {
         None => {
@@ -55,11 +75,11 @@ fn main() -> Result<()> {
             println!();
         }
         Some(Commands::Create) => {
-            let wallet = BtcWallet::create(config)?;
+            let wallet = BtcWallet::create(config).inspect_err(|e| error!("create: {e}"))?;
             println!("wallet created: {}", wallet.config.network);
         }
         Some(Commands::Balance) => {
-            let wallet = BtcWallet::load(config)?;
+            let wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
             let balance = wallet.balance();
             println!("balance: {}", balance);
         }
@@ -67,13 +87,15 @@ fn main() -> Result<()> {
             todo!();
         }
         Some(Commands::NewAddr) => {
-            let mut wallet = BtcWallet::load(config)?;
+            let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
             let new_addr = wallet.new_address();
             println!("new address: {}", new_addr);
         }
         Some(Commands::Tx { tx_hex }) => {
-            let wallet = BtcWallet::load(config)?;
-            let tx = wallet.to_tx(&tx_hex)?;
+            let wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
+            let tx = wallet
+                .to_tx(&tx_hex)
+                .inspect_err(|e| error!("to_hex: {e}"))?;
             println!("{:#?}", tx);
         }
         Some(Commands::Spend {
@@ -81,15 +103,21 @@ fn main() -> Result<()> {
             amount,
             fee_rate,
         }) => {
-            let mut wallet = BtcWallet::load(config)?;
-            let tx = wallet.create_tx(&out_addr, amount, fee_rate)?;
+            let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
+            let tx = wallet
+                .create_tx(&out_addr, amount, fee_rate)
+                .inspect_err(|e| error!("create_tx: {e}"))?;
             println!("tx: {:#?}", tx);
             println!("raw_tx: {}", wallet.tx_to_string(&tx));
         }
         Some(Commands::SendRawTx { tx_hex }) => {
-            let wallet = BtcWallet::load(config)?;
-            let tx = wallet.to_tx(&tx_hex)?;
-            let txid = wallet.send_tx(&tx)?;
+            let wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
+            let tx = wallet
+                .to_tx(&tx_hex)
+                .inspect_err(|e| error!("to_hex: {e}"))?;
+            let txid = wallet
+                .send_tx(&tx)
+                .inspect_err(|e| error!("send_tx: {e}"))?;
             println!("txid: {}", txid);
         }
         Some(Commands::RemoveWalletFiles) => {
