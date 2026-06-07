@@ -15,7 +15,7 @@ name = "main"
 bdk_wallet = { version = "3.0.0", features = ["rusqlite"] }
 bdk_electrum = "0.24.0"
 
-log = "0.4.31"
+log = "0.4.32"
 hex = "0.4.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
