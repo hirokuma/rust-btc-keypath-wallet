@@ -184,8 +184,9 @@ impl Wallet {
         let mut builder = self.wallet.build_tx();
         builder.add_recipient(out_addr.script_pubkey(), amount);
         let mut allow_all_sighashes = false;
+
+        // sighash_typeが指定された場合、すべてのsighashを許可する
         if let Some(sig_hash_type) = sighash_type {
-            // something experiment
             allow_all_sighashes = true;
             builder.sighash(sig_hash_type.into());
         }

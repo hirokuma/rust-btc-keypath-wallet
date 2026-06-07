@@ -149,6 +149,9 @@ impl BtcWallet {
         self.create_tx_sighash_type(out_addr, amount, fee_rate, None)
     }
 
+    /// SINGLE+ANYONE_CAN_PAY sighashタイプを使用してトランザクションを作成する
+    ///
+    /// この署名タイプは、特定の入力のみを署名し、他の入力の変更を許可します
     pub fn create_tx_single_anypay(
         &mut self,
         out_addr: &str,
@@ -173,7 +176,11 @@ impl BtcWallet {
         let out_addr: Address<NetworkUnchecked> = out_addr.parse()?;
         let out_addr: Address = out_addr.require_network(self.config.network)?;
         let amount = Amount::from_sat(amount);
+
+        // sat/vB から sat/kwu に変換 (1 sat/vB = 250 sat/kwu)
+        // https://deepwiki.com/search/fee-ratesatsvbytefeerate_1892991e-17d5-4d2e-bd27-97078e3a1930?mode=fast
         let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
+
         Ok(self
             .wallet
             .create_tx(&out_addr, amount, fee_rate, sighash_type)?)
