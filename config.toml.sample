@@ -6,3 +6,5 @@ backend = "electrum"
 [electrum]
 enabled = true
 server = "tcp://127.0.0.1:50001"
+batch_size = 30
+gap_limit = 20

@@ -4,15 +4,19 @@ mod electrum;
 mod logger;
 mod wallet;
 
-use bdk_wallet::bitcoin::{
-    self, FeeRate,
-    address::{NetworkUnchecked, ParseError},
-    consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
-    key::rand::{self, RngCore},
-};
 pub use bdk_wallet::{
-    Balance,
-    bitcoin::{Address, Amount, Transaction, Txid},
+    self, Balance,
+    bitcoin::{self, Address, Amount, Transaction, Txid},
+    miniscript,
+};
+use bdk_wallet::{
+    bitcoin::{
+        FeeRate,
+        address::{NetworkUnchecked, ParseError},
+        consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+        key::rand::{self, RngCore},
+    },
+    chain::local_chain::CannotConnectError,
 };
 use std::{result::Result, sync::Arc};
 use thiserror::Error;
@@ -31,6 +35,9 @@ pub enum Error {
 
     #[error(transparent)]
     Backend(#[from] BackendError),
+
+    #[error(transparent)]
+    CannotConnect(#[from] CannotConnectError),
 
     #[error(transparent)]
     Wallet(#[from] WalletError),
@@ -57,6 +64,7 @@ pub struct BtcWallet {
 }
 
 impl BtcWallet {
+    /// BtcWalletのウォレットファイルと秘密鍵ファイルがあるならload、両方ともなければ生成する
     pub fn create_or_load(config: Config) -> Result<Self, Error> {
         let is_create = if config.privkey_fname.exists() && config.wallet_fname.exists() {
             false
@@ -75,6 +83,7 @@ impl BtcWallet {
         })
     }
 
+    /// BtcWalletを生成する。ウォレットファイルか秘密鍵ファイルがある場合は失敗する。
     pub fn create(config: Config) -> Result<Self, Error> {
         let (rpc, wallet) = Self::init(&config, true)?;
         debug!("create done");
@@ -85,6 +94,7 @@ impl BtcWallet {
         })
     }
 
+    /// BtcWalletをloadする。ウォレットファイルか秘密鍵ファイルがない場合は失敗する。
     pub fn load(config: Config) -> Result<Self, Error> {
         let (rpc, wallet) = Self::init(&config, false)?;
         debug!("load done");
@@ -106,14 +116,18 @@ impl BtcWallet {
         let rpc = match config.backend {
             config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)?,
         };
-        rpc.full_scan(&mut wallet)?;
+        let req = wallet.start_full_scan();
+        let update = rpc.initial_scan(req)?;
+        wallet.apply_update(update)?;
         Ok((Box::new(rpc), wallet))
     }
 }
 
 impl BtcWallet {
     pub fn sync(&mut self) -> Result<(), Error> {
-        Ok(self.rpc.sync(&mut self.wallet)?)
+        let req = self.wallet.start_sync_with_revealed_spks();
+        let update = self.rpc.sync(req)?;
+        Ok(self.wallet.apply_update(update)?)
     }
 
     pub fn balance(&self) -> Balance {
@@ -149,6 +163,9 @@ impl BtcWallet {
         self.create_tx_sighash_type(out_addr, amount, fee_rate, None)
     }
 
+    /// SINGLE+ANYONE_CAN_PAY sighashタイプを使用してトランザクションを作成する
+    ///
+    /// この署名タイプは、特定の入力のみを署名し、他の入力の変更を許可します
     pub fn create_tx_single_anypay(
         &mut self,
         out_addr: &str,
@@ -173,7 +190,11 @@ impl BtcWallet {
         let out_addr: Address<NetworkUnchecked> = out_addr.parse()?;
         let out_addr: Address = out_addr.require_network(self.config.network)?;
         let amount = Amount::from_sat(amount);
+
+        // sat/vB から sat/kwu に変換 (1 sat/vB = 250 sat/kwu)
+        // https://deepwiki.com/search/fee-ratesatsvbytefeerate_1892991e-17d5-4d2e-bd27-97078e3a1930?mode=fast
         let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
+
         Ok(self
             .wallet
             .create_tx(&out_addr, amount, fee_rate, sighash_type)?)
@@ -271,6 +292,8 @@ mod tests {
             electrum: config::ElectrumConfig {
                 enabled: true,
                 server: "tcp://127.0.0.1:50001".to_string(),
+                batch_size: Some(10),
+                gap_limit: Some(20),
             },
         }
     }

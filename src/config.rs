@@ -24,21 +24,37 @@ pub enum Backend {
     Electrum,
 }
 
+/// Wallet config
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
+    /// BDK Wallet filename
     pub wallet_fname: PathBuf,
+    /// Private key text filename
     pub privkey_fname: PathBuf,
+    /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
+    /// Backend type
     pub backend: Backend,
+    /// Electrum backend config
     pub electrum: ElectrumConfig,
 }
 
+/// Electrum backend config
 #[derive(Deserialize, Debug, Clone)]
 pub struct ElectrumConfig {
+    /// true: enable this backend
     #[serde(default)]
     pub enabled: bool,
+
+    /// Server URL(tcp:// or ssl://)
     #[serde(default)]
     pub server: String,
+
+    /// Batch size
+    pub batch_size: Option<usize>,
+
+    /// Gap limit
+    pub gap_limit: Option<usize>,
 }
 
 impl Config {

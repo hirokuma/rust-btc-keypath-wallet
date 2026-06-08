@@ -40,6 +40,16 @@ enum Commands {
         /// feerate
         fee_rate: f64,
     },
+    /// Create a spendable transaction signed by SINGLE+ANYONE_CAN_PAY
+    #[command(name = "spend-single")]
+    SpendSingle {
+        /// output address
+        out_addr: String,
+        /// amount sats
+        amount: u64,
+        /// feerate
+        fee_rate: f64,
+    },
     /// Send raw transaction.
     #[command(name = "sendrawtx")]
     SendRawTx { tx_hex: String },
@@ -106,6 +116,14 @@ fn main() -> Result<()> {
             let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
             let tx = wallet
                 .create_tx(&out_addr, amount, fee_rate)
+                .inspect_err(|e| error!("create_tx: {e}"))?;
+            println!("tx: {:#?}", tx);
+            println!("raw_tx: {}", wallet.tx_to_string(&tx));
+        }
+        Some(Commands::SpendSingle { out_addr, amount, fee_rate }) => {
+            let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
+            let tx = wallet
+                .create_tx_single_anypay(&out_addr, amount, fee_rate)
                 .inspect_err(|e| error!("create_tx: {e}"))?;
             println!("tx: {:#?}", tx);
             println!("raw_tx: {}", wallet.tx_to_string(&tx));
