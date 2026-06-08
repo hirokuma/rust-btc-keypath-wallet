@@ -4,15 +4,19 @@ mod electrum;
 mod logger;
 mod wallet;
 
-use bdk_wallet::{bitcoin::{
-    self, FeeRate,
-    address::{NetworkUnchecked, ParseError},
-    consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
-    key::rand::{self, RngCore},
-}, chain::local_chain::CannotConnectError};
 pub use bdk_wallet::{
-    Balance,
-    bitcoin::{Address, Amount, Transaction, Txid},
+    self, Balance,
+    bitcoin::{self, Address, Amount, Transaction, Txid},
+    miniscript,
+};
+use bdk_wallet::{
+    bitcoin::{
+        FeeRate,
+        address::{NetworkUnchecked, ParseError},
+        consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+        key::rand::{self, RngCore},
+    },
+    chain::local_chain::CannotConnectError,
 };
 use std::{result::Result, sync::Arc};
 use thiserror::Error;
