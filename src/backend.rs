@@ -3,11 +3,15 @@ use std::{result::Result, sync::Arc};
 use thiserror::Error;
 
 use bdk_wallet::{
+    KeychainKind,
     bitcoin::{Transaction, Txid},
-    chain::local_chain::CannotConnectError,
+    chain::{
+        local_chain::CannotConnectError,
+        spk_client::{FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse},
+    },
 };
 
-use crate::{Wallet, config};
+use crate::config;
 
 #[derive(Error, Debug)]
 pub enum BackendError {
@@ -22,8 +26,21 @@ pub enum BackendError {
 }
 
 pub trait BackendRpc: Send + Sync {
-    fn full_scan(&self, wallet: &mut Wallet) -> Result<(), BackendError>;
-    fn sync(&self, wallet: &mut Wallet) -> Result<(), BackendError>;
+    /// Full scan for startup
+    fn initial_scan(
+        &self,
+        req: FullScanRequestBuilder<KeychainKind>,
+    ) -> Result<FullScanResponse<KeychainKind>, BackendError>;
+
+    /// Sync known scriptPubKeys
+    fn sync(
+        &self,
+        req: SyncRequestBuilder<(KeychainKind, u32)>,
+    ) -> Result<SyncResponse, BackendError>;
+
+    /// Get the transaction
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError>;
+
+    /// Send the transaction
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError>;
 }

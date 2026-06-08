@@ -1,13 +1,18 @@
 use std::{result::Result, sync::Arc};
 
 use bdk_electrum::{BdkElectrumClient, electrum_client};
-use bdk_wallet::bitcoin::{Transaction, Txid};
+use bdk_wallet::{
+    KeychainKind,
+    bitcoin::{Transaction, Txid},
+    chain::spk_client::{
+        FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
+    },
+};
 
 use crate::{
     backend::{BackendError, BackendRpc},
     config::ElectrumConfig,
     logger::*,
-    wallet::Wallet,
 };
 
 pub struct ElectrumRpc {
@@ -29,24 +34,24 @@ impl ElectrumRpc {
 }
 
 impl BackendRpc for ElectrumRpc {
-    fn full_scan(&self, wallet: &mut Wallet) -> Result<(), BackendError> {
-        let req = wallet.start_full_scan();
+    fn initial_scan(
+        &self,
+        req: FullScanRequestBuilder<KeychainKind>,
+    ) -> Result<FullScanResponse<KeychainKind>, BackendError> {
         let update = self
             .client
             .full_scan(req, self.gap_limit, self.batch_size, false)?;
-        wallet.apply_update(update)?;
-
         debug!("full_scan done");
-        Ok(())
+        Ok(update)
     }
 
-    fn sync(&self, wallet: &mut Wallet) -> Result<(), BackendError> {
-        let req = wallet.start_sync_with_revealed_spks();
+    fn sync(
+        &self,
+        req: SyncRequestBuilder<(KeychainKind, u32)>,
+    ) -> Result<SyncResponse, BackendError> {
         let update = self.client.sync(req, self.batch_size, false)?;
-        wallet.apply_update(update)?;
-
         debug!("sync done");
-        Ok(())
+        Ok(update)
     }
 
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError> {
