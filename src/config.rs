@@ -39,6 +39,8 @@ pub struct ElectrumConfig {
     pub enabled: bool,
     #[serde(default)]
     pub server: String,
+    pub batch_size: Option<usize>,
+    pub gap_limit: Option<usize>,
 }
 
 impl Config {

@@ -12,25 +12,28 @@ use crate::{
 
 pub struct ElectrumRpc {
     client: BdkElectrumClient<electrum_client::Client>,
+    batch_size: usize,
+    gap_limit: usize,
 }
 
 impl ElectrumRpc {
-    const BATCH_SIZE: usize = 5;
-    const GAP_LIMIT: usize = 20;
-
     pub fn new(config: &ElectrumConfig) -> Result<ElectrumRpc, BackendError> {
         let client = electrum_client::Client::new(&config.server)?;
         let client = BdkElectrumClient::new(client);
-        Ok(ElectrumRpc { client })
+        Ok(ElectrumRpc {
+            client,
+            batch_size: config.batch_size.unwrap_or(30),
+            gap_limit: config.gap_limit.unwrap_or(20),
+        })
     }
 }
 
 impl BackendRpc for ElectrumRpc {
     fn full_scan(&self, wallet: &mut Wallet) -> Result<(), BackendError> {
         let req = wallet.start_full_scan();
-        let update =
-            self.client
-                .full_scan(req, ElectrumRpc::GAP_LIMIT, ElectrumRpc::BATCH_SIZE, false)?;
+        let update = self
+            .client
+            .full_scan(req, self.gap_limit, self.batch_size, false)?;
         wallet.apply_update(update)?;
 
         debug!("full_scan done");
@@ -39,9 +42,10 @@ impl BackendRpc for ElectrumRpc {
 
     fn sync(&self, wallet: &mut Wallet) -> Result<(), BackendError> {
         let req = wallet.start_sync_with_revealed_spks();
-        let update = self.client.sync(req, ElectrumRpc::BATCH_SIZE, false)?;
+        let update = self.client.sync(req, self.batch_size, false)?;
         wallet.apply_update(update)?;
 
+        debug!("sync done");
         Ok(())
     }
 
