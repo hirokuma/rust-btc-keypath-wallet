@@ -104,7 +104,7 @@ fn main() -> Result<()> {
         Some(Commands::Tx { tx_hex }) => {
             let wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
             let tx = wallet
-                .to_tx(&tx_hex)
+                .parse_tx_hex(&tx_hex)
                 .inspect_err(|e| error!("to_hex: {e}"))?;
             println!("{:#?}", tx);
         }
@@ -114,24 +114,26 @@ fn main() -> Result<()> {
             fee_rate,
         }) => {
             let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
+            let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
                 .create_tx(&out_addr, amount, fee_rate)
                 .inspect_err(|e| error!("create_tx: {e}"))?;
             println!("tx: {:#?}", tx);
-            println!("raw_tx: {}", wallet.tx_to_string(&tx));
+            println!("raw_tx: {}", wallet.to_tx_hex(&tx));
         }
         Some(Commands::SpendSingle { out_addr, amount, fee_rate }) => {
             let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
+            let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
                 .create_tx_single_anypay(&out_addr, amount, fee_rate)
                 .inspect_err(|e| error!("create_tx: {e}"))?;
             println!("tx: {:#?}", tx);
-            println!("raw_tx: {}", wallet.tx_to_string(&tx));
+            println!("raw_tx: {}", wallet.to_tx_hex(&tx));
         }
         Some(Commands::SendRawTx { tx_hex }) => {
             let wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
             let tx = wallet
-                .to_tx(&tx_hex)
+                .parse_tx_hex(&tx_hex)
                 .inspect_err(|e| error!("to_hex: {e}"))?;
             let txid = wallet
                 .send_tx(&tx)

@@ -14,6 +14,7 @@ use bdk_wallet::{
         FeeRate,
         address::{NetworkUnchecked, ParseError},
         consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+        hex::HexToArrayError,
         key::rand::{self, RngCore},
     },
     chain::local_chain::CannotConnectError,
@@ -43,7 +44,10 @@ pub enum Error {
     Wallet(#[from] WalletError),
 
     #[error(transparent)]
-    Convert(#[from] FromHexError),
+    TxConvert(#[from] FromHexError),
+
+    #[error(transparent)]
+    TxidConvert(#[from] HexToArrayError),
 
     #[error(transparent)]
     Parse(#[from] ParseError),
@@ -124,43 +128,58 @@ impl BtcWallet {
 }
 
 impl BtcWallet {
+    /// ウォレット同期
     pub fn sync(&mut self) -> Result<(), Error> {
         let req = self.wallet.start_sync_with_revealed_spks();
         let update = self.rpc.sync(req)?;
         Ok(self.wallet.apply_update(update)?)
     }
 
+    /// 残高取得
     pub fn balance(&self) -> Balance {
         self.wallet.balance()
     }
 
+    /// 新規アドレスを返す。HDウォレットのインデックスを更新する。
     pub fn new_address(&mut self) -> Address {
         self.wallet.new_address()
     }
 
+    /// インデックスに該当するアドレスを返す。
     pub fn get_address(&self, index: u32) -> Address {
         self.wallet.get_address(index)
     }
 
+    /// アドレス文字列をAddress型に変換する。
+    pub fn parse_address(&self, addr_str: &str) -> Result<Address, Error> {
+        let addr: Address<NetworkUnchecked> = addr_str.parse()?;
+        Ok(addr.require_network(self.config.network)?)
+    }
+
+    /// TXIDに該当するトランザクションを取得する。
     pub fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, Error> {
         Ok(self.rpc.get_tx(txid)?)
     }
 
-    pub fn to_tx(&self, tx_hex: &str) -> Result<Transaction, Error> {
+    pub fn parse_txid_hex(&self, txid_hex: &str) -> Result<Txid, Error> {
+        Ok(txid_hex.parse()?)
+    }
+
+    pub fn parse_tx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {
         Ok(deserialize_hex(tx_hex)?)
     }
 
-    pub fn tx_to_string(&self, tx: &Transaction) -> String {
+    pub fn to_tx_hex(&self, tx: &Transaction) -> String {
         serialize_hex(tx)
     }
 
     pub fn create_tx(
         &mut self,
-        out_addr: &str,
+        addr: &Address,
         amount: u64,
         fee_rate: f64,
     ) -> Result<Transaction, Error> {
-        self.create_tx_sighash_type(out_addr, amount, fee_rate, None)
+        self.create_tx_sighash_type(addr, amount, fee_rate, None)
     }
 
     /// SINGLE+ANYONE_CAN_PAY sighashタイプを使用してトランザクションを作成する
@@ -168,12 +187,12 @@ impl BtcWallet {
     /// この署名タイプは、特定の入力のみを署名し、他の入力の変更を許可します
     pub fn create_tx_single_anypay(
         &mut self,
-        out_addr: &str,
+        addr: &Address,
         amount: u64,
         fee_rate: f64,
     ) -> Result<Transaction, Error> {
         self.create_tx_sighash_type(
-            out_addr,
+            addr,
             amount,
             fee_rate,
             Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
@@ -182,13 +201,11 @@ impl BtcWallet {
 
     fn create_tx_sighash_type(
         &mut self,
-        out_addr: &str,
+        addr: &Address,
         amount: u64,
         fee_rate: f64,
         sighash_type: Option<bitcoin::TapSighashType>,
     ) -> Result<Transaction, Error> {
-        let out_addr: Address<NetworkUnchecked> = out_addr.parse()?;
-        let out_addr: Address = out_addr.require_network(self.config.network)?;
         let amount = Amount::from_sat(amount);
 
         // sat/vB から sat/kwu に変換 (1 sat/vB = 250 sat/kwu)
@@ -197,7 +214,7 @@ impl BtcWallet {
 
         Ok(self
             .wallet
-            .create_tx(&out_addr, amount, fee_rate, sighash_type)?)
+            .create_tx(addr, amount, fee_rate, sighash_type)?)
     }
 
     pub fn send_tx(&self, tx: &Transaction) -> Result<Txid, Error> {
@@ -279,6 +296,34 @@ mod tests {
             let result = BtcWallet::load(config.clone());
             assert_eq!(result.is_ok(), false);
         }
+    }
+
+    #[test]
+    fn test_parse_txid_hex() {
+        let dir = tempdir().unwrap();
+        let config = make_config(&dir);
+        let wallet = BtcWallet::create(config.clone()).unwrap();
+
+        // empty
+        let txid_str = "";
+        let txid = wallet.parse_txid_hex(txid_str);
+        assert_eq!(txid.is_ok(), false);
+
+        // short
+        let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee";
+        let txid = wallet.parse_txid_hex(txid_str);
+        assert_eq!(txid.is_ok(), false);
+
+        let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+        let txid = wallet.parse_txid_hex(txid_str);
+        assert_eq!(txid.is_ok(), true);
+        let result: Txid = txid_str.parse().unwrap();
+        assert_eq!(txid.unwrap(), result);
+
+        // long
+        let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00";
+        let txid = wallet.parse_txid_hex(txid_str);
+        assert_eq!(txid.is_ok(), false);
     }
 
     fn make_config(dir: &tempfile::TempDir) -> Config {

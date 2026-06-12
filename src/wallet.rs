@@ -176,13 +176,13 @@ impl Wallet {
 
     pub fn create_tx(
         &mut self,
-        out_addr: &Address,
+        addr: &Address,
         amount: Amount,
         fee_rate: FeeRate,
         sighash_type: Option<bitcoin::TapSighashType>,
     ) -> Result<Transaction, WalletError> {
         let mut builder = self.wallet.build_tx();
-        builder.add_recipient(out_addr.script_pubkey(), amount);
+        builder.add_recipient(addr.script_pubkey(), amount);
         let mut allow_all_sighashes = false;
 
         // sighash_typeが指定された場合、すべてのsighashを許可する
