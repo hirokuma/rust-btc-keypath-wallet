@@ -2,6 +2,7 @@
 name = "btc_wallet"
 version = "0.0.1"
 edition = "2024"
+license = "MIT"
 
 [features]
 default = ["log"]
