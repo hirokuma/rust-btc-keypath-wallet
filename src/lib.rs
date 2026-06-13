@@ -225,7 +225,6 @@ impl BtcWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bdk_wallet;
     use tempfile::tempdir;
 
     #[test]
@@ -240,7 +239,7 @@ mod tests {
         }
         {
             let result = BtcWallet::create(config.clone());
-            assert_eq!(result.is_ok(), false);
+            assert!(result.is_err());
         }
     }
 
@@ -256,7 +255,7 @@ mod tests {
         }
         {
             let result = BtcWallet::create(config.clone());
-            assert_eq!(result.is_ok(), false);
+            assert!(result.is_err());
         }
     }
 
@@ -266,7 +265,7 @@ mod tests {
         let config = make_config(&dir);
         {
             let result = BtcWallet::load(config.clone());
-            assert_eq!(result.is_ok(), false);
+            assert!(result.is_err());
         }
     }
 
@@ -280,7 +279,7 @@ mod tests {
         {
             std::fs::remove_file(&config.privkey_fname).unwrap();
             let result = BtcWallet::load(config.clone());
-            assert_eq!(result.is_ok(), false);
+            assert!(result.is_err());
         }
     }
 
@@ -294,7 +293,7 @@ mod tests {
         {
             std::fs::remove_file(&config.wallet_fname).unwrap();
             let result = BtcWallet::load(config.clone());
-            assert_eq!(result.is_ok(), false);
+            assert!(result.is_err());
         }
     }
 
@@ -307,23 +306,23 @@ mod tests {
         // empty
         let txid_str = "";
         let txid = wallet.parse_txid_hex(txid_str);
-        assert_eq!(txid.is_ok(), false);
+        assert!(txid.is_err());
 
         // short
         let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee";
         let txid = wallet.parse_txid_hex(txid_str);
-        assert_eq!(txid.is_ok(), false);
+        assert!(txid.is_ok());
 
         let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
         let txid = wallet.parse_txid_hex(txid_str);
-        assert_eq!(txid.is_ok(), true);
+        assert!(txid.is_ok());
         let result: Txid = txid_str.parse().unwrap();
         assert_eq!(txid.unwrap(), result);
 
         // long
         let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00";
         let txid = wallet.parse_txid_hex(txid_str);
-        assert_eq!(txid.is_ok(), false);
+        assert!(txid.is_err());
     }
 
     fn make_config(dir: &tempfile::TempDir) -> Config {
