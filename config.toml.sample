@@ -1,4 +1,5 @@
 wallet_fname = "mywallet.bdk"
+# Optional: if not specified, the caller is responsible for saving/loading the private key
 privkey_fname = "myprivkey.txt"
 network = "regtest"
 backend = "electrum"
