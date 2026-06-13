@@ -84,7 +84,9 @@ impl Wallet {
 impl Wallet {
     pub fn create(config: &Config, seed: &[u8; 32]) -> Result<Self, WalletError> {
         if config.privkey_fname.exists() || config.wallet_fname.exists() {
-            return Err(WalletError::WalletFile("wallet file or key file already exists"));
+            return Err(WalletError::WalletFile(
+                "wallet file or key file already exists",
+            ));
         }
         let kind = NetworkKind::from(config.network);
         let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
@@ -111,7 +113,9 @@ impl Wallet {
 
     pub fn load(config: &Config) -> Result<Self, WalletError> {
         if !config.privkey_fname.exists() || !config.wallet_fname.exists() {
-            return Err(WalletError::WalletFile("wallet file or key file not exists"));
+            return Err(WalletError::WalletFile(
+                "wallet file or key file not exists",
+            ));
         }
         let mut conn =
             Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
