@@ -121,7 +121,11 @@ fn main() -> Result<()> {
             println!("tx: {:#?}", tx);
             println!("raw_tx: {}", wallet.to_tx_hex(&tx));
         }
-        Some(Commands::SpendSingle { out_addr, amount, fee_rate }) => {
+        Some(Commands::SpendSingle {
+            out_addr,
+            amount,
+            fee_rate,
+        }) => {
             let mut wallet = BtcWallet::load(config).inspect_err(|e| error!("load: {e}"))?;
             let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
