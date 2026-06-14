@@ -59,9 +59,6 @@ pub enum Error {
     #[error(transparent)]
     Bip32(#[from] bip32::Error),
 
-    #[error("file existance error: {0}")]
-    FileExistance(&'static str),
-
     #[error("Callback function error: {0}")]
     Callback(String),
 }
