@@ -11,11 +11,16 @@ pub use bdk_wallet::{
 };
 use bdk_wallet::{
     bitcoin::{
-        FeeRate, address::{NetworkUnchecked, ParseError}, consensus::encode::{FromHexError, deserialize_hex, serialize_hex}, hex::HexToArrayError, key::rand::{self, RngCore}
+        FeeRate,
+        address::{NetworkUnchecked, ParseError},
+        bip32,
+        consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+        hex::HexToArrayError,
+        key::rand::{self, RngCore},
     },
     chain::local_chain::CannotConnectError,
 };
-use std::{result::Result, sync::Arc};
+use std::{fs::File, io::prelude::*, result::Result, str::FromStr, sync::Arc};
 use thiserror::Error;
 
 use crate::{
@@ -48,13 +53,44 @@ pub enum Error {
     #[error(transparent)]
     Parse(#[from] ParseError),
 
+    #[error(transparent)]
+    PrivkeyFile(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Bip32(#[from] bip32::Error),
+
     #[error("file existance error: {0}")]
     FileExistance(&'static str),
+
+    #[error("Callback function error: {0}")]
+    Callback(String),
 }
 
 pub fn load_config(config_fname: &str) -> Result<Config, Error> {
     Ok(Config::new(config_fname)
         .inspect_err(|e| trace!("fail load_config({}): {}", config_fname, e))?)
+}
+
+pub fn save_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
+    let xprv_str = xprv.to_string();
+    let mut f = File::create(&config.privkey_fname)?;
+    writeln!(f, "{}", xprv_str)?;
+    Ok(())
+}
+
+pub fn load_private_key(config: &Config) -> Result<Xpriv, Error> {
+    let mut xprv = String::new();
+    let mut f = File::open(&config.privkey_fname)?;
+    f.read_to_string(&mut xprv)?;
+    if let Some(first_line) = xprv.lines().next() {
+        let xprv_str = first_line.to_string();
+        Ok(Xpriv::from_str(&xprv_str)?)
+    } else {
+        Err(Error::Callback(format!(
+            "fail load privkey text file: {}",
+            config.privkey_fname.to_string_lossy()
+        )))
+    }
 }
 
 pub struct BtcWallet {
@@ -64,51 +100,27 @@ pub struct BtcWallet {
 }
 
 impl BtcWallet {
-    // fn save_callback(privkey: &Xpriv, _config: &Config) {
-    //     *saved_privkey.borrow_mut() = Some(privkey.clone());
-    // }
-
-
-    /// BtcWalletのウォレットファイルと秘密鍵ファイルがあるならload、両方ともなければ生成する
-    pub fn create_or_load(
-        config: Config,
-        privkey_save_callback: Option<&dyn Fn(&Xpriv, &Config)>,
-        privkey_load_callback: Option<&dyn Fn(&Config) -> Xpriv>,
-    ) -> Result<Self, Error> {
-        let is_create = match (&config.privkey_fname, config.wallet_fname.exists()) {
-            (Some(fname), true) if fname.exists() => false,
-            (None, true) => false,
-            (Some(fname), false) if !fname.exists() => true,
-            (None, false) => true,
-            _ => {
-                trace!("invalid wallet files");
-                return Err(Error::FileExistance("invalid wallet files"));
-            }
-        };
-        let (rpc, wallet) = Self::init(
-            &config,
-            is_create,
-            privkey_save_callback,
-            privkey_load_callback,
-        )?;
-        debug!("create_or_load done");
-        Ok(Self {
-            config,
-            rpc,
-            wallet,
-        })
-    }
-
     /// BtcWalletを生成する。ウォレットファイルか秘密鍵ファイルがある場合は失敗する。
     pub fn create(
         config: Config,
-        privkey_save_callback: Option<&dyn Fn(&Xpriv, &Config)>,
+        mut privkey_save_callback: impl FnMut(&Xpriv, &Config) -> Result<(), Error>,
     ) -> Result<Self, Error> {
-        let (rpc, wallet) = Self::init(&config, true, privkey_save_callback, None)?;
+        let mut seed: [u8; 32] = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut seed);
+        let (mut wallet, xprv) = Wallet::create(&config, &seed)?;
+        privkey_save_callback(&xprv, &config)?;
+
+        let rpc = match config.backend {
+            config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)?,
+        };
+        let req = wallet.start_full_scan();
+        let update = rpc.initial_scan(req)?;
+        wallet.apply_update(update)?;
+
         debug!("create done");
         Ok(Self {
             config,
-            rpc,
+            rpc: Box::new(rpc),
             wallet,
         })
     }
@@ -116,37 +128,23 @@ impl BtcWallet {
     /// BtcWalletをloadする。ウォレットファイルか秘密鍵ファイルがない場合は失敗する。
     pub fn load(
         config: Config,
-        privkey_load_callback: Option<&dyn Fn(&Config) -> Xpriv>,
+        mut privkey_load_callback: impl FnMut(&Config) -> Result<Xpriv, Error>,
     ) -> Result<Self, Error> {
-        let (rpc, wallet) = Self::init(&config, false, None, privkey_load_callback)?;
-        debug!("load done");
-        Ok(Self {
-            config,
-            rpc,
-            wallet,
-        })
-    }
-
-    fn init(
-        config: &Config,
-        is_create: bool,
-        privkey_save_callback: Option<impl Fn(&Xpriv, &Config)>,
-        privkey_load_callback: Option<&dyn Fn(&Config) -> Xpriv>,
-    ) -> Result<(Box<dyn BackendRpc>, Wallet), Error> {
-        let mut wallet = if is_create {
-            let mut seed: [u8; 32] = [0u8; 32];
-            rand::thread_rng().fill_bytes(&mut seed);
-            Wallet::create(config, &seed, privkey_save_callback)?
-        } else {
-            Wallet::load(config, privkey_load_callback)?
-        };
+        let xprv = privkey_load_callback(&config)?;
+        let mut wallet = Wallet::load(&config, xprv)?;
         let rpc = match config.backend {
             config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)?,
         };
         let req = wallet.start_full_scan();
         let update = rpc.initial_scan(req)?;
         wallet.apply_update(update)?;
-        Ok((Box::new(rpc), wallet))
+
+        debug!("load done");
+        Ok(Self {
+            config,
+            rpc: Box::new(rpc),
+            wallet,
+        })
     }
 }
 
@@ -255,29 +253,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone(), None).unwrap();
+            let _ = BtcWallet::create(config.clone(), save_private_key).unwrap();
         }
         {
-            let _ = BtcWallet::load(config.clone(), None).unwrap();
+            let _ = BtcWallet::load(config.clone(), load_private_key).unwrap();
         }
         {
-            let result = BtcWallet::create(config.clone(), None);
-            assert!(result.is_err());
-        }
-    }
-
-    #[test]
-    fn test_create_or_load() {
-        let dir = tempdir().unwrap();
-        let config = make_config(&dir);
-        {
-            let _ = BtcWallet::create_or_load(config.clone(), None, None).unwrap();
-        }
-        {
-            let _ = BtcWallet::load(config.clone(), None).unwrap();
-        }
-        {
-            let result = BtcWallet::create(config.clone(), None);
+            let result = BtcWallet::create(config.clone(), save_private_key);
             assert!(result.is_err());
         }
     }
@@ -287,7 +269,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let result = BtcWallet::load(config.clone(), None);
+            let result = BtcWallet::load(config.clone(), load_private_key);
             assert!(result.is_err());
         }
     }
@@ -297,11 +279,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone(), None).unwrap();
+            let _ = BtcWallet::create(config.clone(), save_private_key).unwrap();
         }
         {
-            std::fs::remove_file(config.privkey_fname.as_ref().unwrap()).unwrap();
-            let result = BtcWallet::load(config.clone(), None);
+            std::fs::remove_file(&config.privkey_fname).unwrap();
+            let result = BtcWallet::load(config, load_private_key);
             assert!(result.is_err());
         }
     }
@@ -311,11 +293,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone(), None).unwrap();
+            let _ = BtcWallet::create(config.clone(), save_private_key).unwrap();
         }
         {
             std::fs::remove_file(&config.wallet_fname).unwrap();
-            let result = BtcWallet::load(config.clone(), None);
+            let result = BtcWallet::load(config.clone(), load_private_key);
             assert!(result.is_err());
         }
     }
@@ -324,7 +306,7 @@ mod tests {
     fn test_parse_txid_hex() {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
-        let wallet = BtcWallet::create(config.clone(), None).unwrap();
+        let wallet = BtcWallet::create(config.clone(), save_private_key).unwrap();
 
         // empty
         let txid_str = "";
@@ -352,42 +334,22 @@ mod tests {
     #[test]
     fn test_create_load_with_callback() {
         let dir = tempdir().unwrap();
-        let config = make_config_no_privkey(&dir);
-        use std::cell::RefCell;
-        let saved_privkey: RefCell<Option<Xpriv>> = RefCell::new(None);
+        let config = make_config(&dir);
+        let mut saved_privkey: Option<Xpriv> = None;
 
         {
-            let save_callback = |privkey: &Xpriv, _config: &Config| {
-                *saved_privkey.borrow_mut() = Some(privkey.clone());
+            let save_callback = |privkey: &Xpriv, _config: &Config| -> Result<(), Error> {
+                saved_privkey = Some(*privkey);
+                Ok(())
             };
-            let _ = BtcWallet::create(config.clone(), Some(&save_callback)).unwrap();
-            assert!(saved_privkey.borrow().is_some());
+            let _ = BtcWallet::create(config.clone(), save_callback).unwrap();
+            assert!(saved_privkey.is_some());
         }
 
         {
-            let load_callback = |_config: &Config| -> Xpriv { saved_privkey.borrow().as_ref().unwrap().clone() };
-            let _ = BtcWallet::load(config.clone(), Some(&load_callback)).unwrap();
-        }
-    }
-
-    #[test]
-    fn test_create_or_load_with_callback() {
-        let dir = tempdir().unwrap();
-        let config = make_config_no_privkey(&dir);
-        use std::cell::RefCell;
-        let saved_privkey: RefCell<Option<Xpriv>> = RefCell::new(None);
-
-        {
-            let save_callback = |privkey: &Xpriv, _config: &Config| {
-                *saved_privkey.borrow_mut() = Some(privkey.clone());
-            };
-            let _ = BtcWallet::create_or_load(config.clone(), Some(&save_callback), None).unwrap();
-            assert!(saved_privkey.borrow().is_some());
-        }
-
-        {
-            let load_callback = |_config: &Config| -> Xpriv { saved_privkey.borrow().as_ref().unwrap().clone() };
-            let _ = BtcWallet::load(config.clone(), Some(&load_callback)).unwrap();
+            let load_callback =
+                |_config: &Config| -> Result<Xpriv, Error> { Ok(saved_privkey.unwrap()) };
+            let _ = BtcWallet::load(config.clone(), load_callback).unwrap();
         }
     }
 
@@ -396,23 +358,7 @@ mod tests {
         let xpriv_path = dir.path().join("xpriv.txt");
         Config {
             wallet_fname: bdk_path,
-            privkey_fname: Some(xpriv_path),
-            network: bdk_wallet::bitcoin::Network::Regtest,
-            backend: config::Backend::Electrum,
-            electrum: config::ElectrumConfig {
-                enabled: true,
-                server: "tcp://127.0.0.1:50001".to_string(),
-                batch_size: Some(10),
-                gap_limit: Some(20),
-            },
-        }
-    }
-
-    fn make_config_no_privkey(dir: &tempfile::TempDir) -> Config {
-        let bdk_path = dir.path().join("wallet.bdk");
-        Config {
-            wallet_fname: bdk_path,
-            privkey_fname: None,
+            privkey_fname: xpriv_path,
             network: bdk_wallet::bitcoin::Network::Regtest,
             backend: config::Backend::Electrum,
             electrum: config::ElectrumConfig {

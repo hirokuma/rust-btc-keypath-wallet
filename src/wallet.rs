@@ -1,4 +1,4 @@
-use std::{fs::File, io::prelude::*, result::Result, str::FromStr};
+use std::result::Result;
 
 use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
@@ -82,20 +82,7 @@ impl Wallet {
 }
 
 impl Wallet {
-    pub fn create(
-        config: &Config,
-        seed: &[u8; 32],
-        privkey_callback: Option<impl Fn(&Xpriv, &Config)>,
-    ) -> Result<Self, WalletError> {
-        if let Some(ref fname) = config.privkey_fname {
-            if fname.exists() || config.wallet_fname.exists() {
-                return Err(WalletError::WalletFile(
-                    "wallet file or key file already exists",
-                ));
-            }
-        } else if config.wallet_fname.exists() {
-            return Err(WalletError::WalletFile("wallet file already exists"));
-        }
+    pub fn create(config: &Config, seed: &[u8; 32]) -> Result<(Self, Xpriv), WalletError> {
         let kind = NetworkKind::from(config.network);
         let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
         let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
@@ -113,52 +100,15 @@ impl Wallet {
             .create_wallet(&mut conn)
             .inspect_err(|e| trace!("{e}"))?;
 
-        match privkey_callback {
-            Some(callback) => callback(&xprv, config),
-            None => {
-                let Some(fname) = &config.privkey_fname else {
-                    return Err(WalletError::WalletFile("config.privkey_fname not exists"));
-                };
-                let xprv_str = xprv.to_string();
-                let mut f = File::create(fname)?;
-                writeln!(f, "{}", xprv_str)?;
-            }
-        }
-
-        Ok(Wallet { wallet, conn })
+        Ok((Wallet { wallet, conn }, xprv))
     }
 
-    pub fn load(
-        config: &Config,
-        privkey_callback: Option<&dyn Fn(&Config) -> Xpriv>,
-    ) -> Result<Self, WalletError> {
+    pub fn load(config: &Config, xprv: Xpriv) -> Result<Self, WalletError> {
         if !config.wallet_fname.exists() {
             return Err(WalletError::WalletFile("wallet file not exists"));
         }
         let mut conn =
             Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        let xprv = match privkey_callback {
-            Some(callback) => {
-                callback(config)
-            }
-            None => {
-                let Some(fname) = &config.privkey_fname else {
-                    return Err(WalletError::WalletFile("privkey file not exists"));
-                };
-                if !fname.exists() {
-                    return Err(WalletError::WalletFile("privkey file not exists"));
-                }
-                let mut xprv = String::new();
-                let mut f = File::open(fname)?;
-                f.read_to_string(&mut xprv)?;
-                if let Some(first_line) = xprv.lines().next() {
-                    let xprv_str = first_line.to_string();
-                    Xpriv::from_str(&xprv_str)?
-                } else {
-                    return Err(WalletError::WalletFile("fail load privkey text file"));
-                }
-            }
-        };
         let kind = NetworkKind::from(config.network);
         let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
         let (change_descriptor, change_key_map, _) =
