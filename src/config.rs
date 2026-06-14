@@ -29,7 +29,7 @@ pub enum Backend {
 pub struct Config {
     /// BDK Wallet filename
     pub wallet_fname: PathBuf,
-    /// Private key text filename
+    /// Private key text filename (optional)
     pub privkey_fname: PathBuf,
     /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
