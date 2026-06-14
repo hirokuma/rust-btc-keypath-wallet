@@ -64,11 +64,16 @@ pub struct BtcWallet {
 }
 
 impl BtcWallet {
+    // fn save_callback(privkey: &Xpriv, _config: &Config) {
+    //     *saved_privkey.borrow_mut() = Some(privkey.clone());
+    // }
+
+
     /// BtcWalletのウォレットファイルと秘密鍵ファイルがあるならload、両方ともなければ生成する
     pub fn create_or_load(
         config: Config,
-        privkey_save_callback: Option<&dyn Fn(&Xpriv)>,
-        privkey_load_callback: Option<&dyn Fn() -> Xpriv>,
+        privkey_save_callback: Option<&dyn Fn(&Xpriv, &Config)>,
+        privkey_load_callback: Option<&dyn Fn(&Config) -> Xpriv>,
     ) -> Result<Self, Error> {
         let is_create = match (&config.privkey_fname, config.wallet_fname.exists()) {
             (Some(fname), true) if fname.exists() => false,
@@ -97,7 +102,7 @@ impl BtcWallet {
     /// BtcWalletを生成する。ウォレットファイルか秘密鍵ファイルがある場合は失敗する。
     pub fn create(
         config: Config,
-        privkey_save_callback: Option<&dyn Fn(&Xpriv)>,
+        privkey_save_callback: Option<&dyn Fn(&Xpriv, &Config)>,
     ) -> Result<Self, Error> {
         let (rpc, wallet) = Self::init(&config, true, privkey_save_callback, None)?;
         debug!("create done");
@@ -111,7 +116,7 @@ impl BtcWallet {
     /// BtcWalletをloadする。ウォレットファイルか秘密鍵ファイルがない場合は失敗する。
     pub fn load(
         config: Config,
-        privkey_load_callback: Option<&dyn Fn() -> Xpriv>,
+        privkey_load_callback: Option<&dyn Fn(&Config) -> Xpriv>,
     ) -> Result<Self, Error> {
         let (rpc, wallet) = Self::init(&config, false, None, privkey_load_callback)?;
         debug!("load done");
@@ -125,8 +130,8 @@ impl BtcWallet {
     fn init(
         config: &Config,
         is_create: bool,
-        privkey_save_callback: Option<&dyn Fn(&Xpriv)>,
-        privkey_load_callback: Option<&dyn Fn() -> Xpriv>,
+        privkey_save_callback: Option<impl Fn(&Xpriv, &Config)>,
+        privkey_load_callback: Option<&dyn Fn(&Config) -> Xpriv>,
     ) -> Result<(Box<dyn BackendRpc>, Wallet), Error> {
         let mut wallet = if is_create {
             let mut seed: [u8; 32] = [0u8; 32];
@@ -352,7 +357,7 @@ mod tests {
         let saved_privkey: RefCell<Option<Xpriv>> = RefCell::new(None);
 
         {
-            let save_callback = |privkey: &Xpriv| {
+            let save_callback = |privkey: &Xpriv, _config: &Config| {
                 *saved_privkey.borrow_mut() = Some(privkey.clone());
             };
             let _ = BtcWallet::create(config.clone(), Some(&save_callback)).unwrap();
@@ -360,7 +365,7 @@ mod tests {
         }
 
         {
-            let load_callback = || -> Xpriv { saved_privkey.borrow().as_ref().unwrap().clone() };
+            let load_callback = |_config: &Config| -> Xpriv { saved_privkey.borrow().as_ref().unwrap().clone() };
             let _ = BtcWallet::load(config.clone(), Some(&load_callback)).unwrap();
         }
     }
@@ -373,7 +378,7 @@ mod tests {
         let saved_privkey: RefCell<Option<Xpriv>> = RefCell::new(None);
 
         {
-            let save_callback = |privkey: &Xpriv| {
+            let save_callback = |privkey: &Xpriv, _config: &Config| {
                 *saved_privkey.borrow_mut() = Some(privkey.clone());
             };
             let _ = BtcWallet::create_or_load(config.clone(), Some(&save_callback), None).unwrap();
@@ -381,7 +386,7 @@ mod tests {
         }
 
         {
-            let load_callback = || -> Xpriv { saved_privkey.borrow().as_ref().unwrap().clone() };
+            let load_callback = |_config: &Config| -> Xpriv { saved_privkey.borrow().as_ref().unwrap().clone() };
             let _ = BtcWallet::load(config.clone(), Some(&load_callback)).unwrap();
         }
     }
