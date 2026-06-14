@@ -9,9 +9,6 @@ default = ["log"]
 log = []
 tracing = []
 
-[[example]]
-name = "main"
-
 [dependencies]
 bdk_wallet = { version = "3.0.0", features = ["rusqlite"] }
 bdk_electrum = "0.24.0"

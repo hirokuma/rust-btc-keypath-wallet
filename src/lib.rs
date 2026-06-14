@@ -1,5 +1,5 @@
 mod backend;
-mod config;
+pub mod config;
 mod electrum;
 mod logger;
 mod wallet;
