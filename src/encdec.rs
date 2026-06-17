@@ -43,6 +43,23 @@ const NONCE_LEN: usize = 12; // ChaCha20Poly1305用のナンス長 (12バイト)
 const KEY_LEN: usize = 32; // 派生させる鍵の長さ (256ビット = 32バイト)
 
 /// パスフレーズを用いてデータを暗号化し、ファイルに保存する
+///
+/// ## 実行フロー
+/// 1. ソルトとナンスを生成 (OsRngでセキュアに)
+/// 2. Argon2idでパスフレーズから32バイトの暗号鍵を導出
+/// 3. ChaCha20Poly1305でデータを暗号化
+/// 4. 暗号化結果をファイルに保存 (ソルト→ナンス→暗号文の順)
+///
+/// ## ファイル形式
+/// - Salt : 16 bytes
+/// - Nonce : 12 bytes
+/// - Message : ...
+///
+/// ## エラー
+/// - `IO`: ファイル操作エラー
+/// - `FromUtf8Error`: 文字列変換エラー
+/// - `Argon(...)`: Argon2処理エラー
+/// - `ChaCha(...)`: ChaCha20Poly1305処理エラー
 pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), EncDecError> {
     // 1. ソルトとナンスを安全な乱数(OsRng)から生成
     let mut salt_bytes = [0u8; SALT_LEN];
@@ -56,15 +73,20 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
         .map_err(|e| EncDecError::Argon(format!("encode_b64: {e}")))?;
 
     // Argon2のデフォルト（安全なパラメータ）でハッシュ生成
-    let argon2 = Argon2::default();
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        argon2::Version::V0x13,
+        argon2::Params::default()
+    );
     let password_hash = argon2
         .hash_password(passphrase.as_bytes(), &salt_string)
-        .map_err(|e| EncDecError::Argon(format!("hash_password: {e}")))?;
-
-    // ハッシュ結果から32バイトの鍵を取り出す
+        .map_err(|e| EncDecError::Argon(format!("failed to hash password: {e}")))?;
     let hash_output = password_hash
         .hash
         .ok_or(EncDecError::HashNone("Password"))?;
+    if hash_output.len() < KEY_LEN {
+        return Err(EncDecError::InvalidLength("hash_output < 32"));
+    }
     derived_key.copy_from_slice(&hash_output.as_ref()[..KEY_LEN]);
 
     // 3. ChaCha20Poly1305 で暗号化
@@ -86,7 +108,19 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
     Ok(())
 }
 
-/// ファイルを読み込み、パスフレーズを用いて復号する
+/// パスフレーズを用いてファイルからデータを復号する
+///
+/// ## 実行フロー
+/// 1. ファイル全体の読み込み
+/// 2. ソルト、ナンス、暗号文のパース
+/// 3. 同じソルトでパスフレーズから鍵の再導出
+/// 4. ChaCha20Poly1305による復号処理
+/// 5. 復元されたデータの文字列変換
+///
+/// ## メモリ安全
+/// - 同じソルトとパスフレーズで必ず同じ鍵が生成される
+/// - セキュアなメモリ確保 (zeroed buffer)
+/// - 復号後はすぐにゼロ埋めされる
 pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDecError> {
     // 1. ファイル全体の読み込み
     let mut file = File::open(path)?;
@@ -110,14 +144,20 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     let salt_string = SaltString::encode_b64(salt_bytes)
         .map_err(|e| EncDecError::Argon(format!("encode_b64: {e}")))?;
 
-    let argon2 = Argon2::default();
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        argon2::Version::V0x13,
+        argon2::Params::default()
+    );
     let password_hash = argon2
         .hash_password(passphrase.as_bytes(), &salt_string)
-        .map_err(|e| EncDecError::Argon(format!("hash_password: {e}")))?;
-
+        .map_err(|e| EncDecError::Argon(format!("failed to hash password: {e}")))?;
     let hash_output = password_hash
         .hash
         .ok_or(EncDecError::HashNone("Password"))?;
+    if hash_output.len() < KEY_LEN {
+        return Err(EncDecError::InvalidLength("hash_output < 32"));
+    }
     derived_key.copy_from_slice(&hash_output.as_ref()[..KEY_LEN]);
 
     // 4. ChaCha20Poly1305 で復号
