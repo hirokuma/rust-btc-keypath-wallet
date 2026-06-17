@@ -1,6 +1,7 @@
 mod backend;
 pub mod config;
 mod electrum;
+mod encdec;
 mod logger;
 mod wallet;
 
@@ -26,6 +27,7 @@ use thiserror::Error;
 use crate::{
     backend::{BackendError, BackendRpc},
     config::{Config, ConfigError},
+    encdec::EncDecError,
     logger::*,
     wallet::{Wallet, WalletError},
 };
@@ -37,6 +39,9 @@ pub enum Error {
 
     #[error(transparent)]
     Backend(#[from] BackendError),
+
+    #[error(transparent)]
+    EncDec(#[from] EncDecError),
 
     #[error(transparent)]
     CannotConnect(#[from] CannotConnectError),
@@ -68,14 +73,16 @@ pub fn load_config(config_fname: &str) -> Result<Config, Error> {
         .inspect_err(|e| trace!("fail load_config({}): {}", config_fname, e))?)
 }
 
-pub fn save_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
+/// 拡張秘密鍵をテキスト形式でファイル保存する(DANGER)
+pub fn save_text_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
     let xprv_str = xprv.to_string();
     let mut f = File::create(&config.privkey_fname)?;
     writeln!(f, "{}", xprv_str)?;
     Ok(())
 }
 
-pub fn load_private_key(config: &Config) -> Result<Xpriv, Error> {
+/// save_text_private_key()で保存した拡張秘密鍵ファイルを読み込む
+pub fn load_text_private_key(config: &Config) -> Result<Xpriv, Error> {
     let mut xprv = String::new();
     let mut f = File::open(&config.privkey_fname)?;
     f.read_to_string(&mut xprv)?;
@@ -88,6 +95,23 @@ pub fn load_private_key(config: &Config) -> Result<Xpriv, Error> {
             config.privkey_fname.to_string_lossy()
         )))
     }
+}
+
+/// 拡張秘密鍵をChaCha20Poly1305でファイル保存する
+pub fn save_encoded_private_key(
+    xprv: &Xpriv,
+    config: &Config,
+    passphrase: &str,
+) -> Result<(), Error> {
+    let xprv_str = xprv.to_string();
+    encdec::encrypt_to_file(&config.privkey_fname, &xprv_str, passphrase)?;
+    Ok(())
+}
+
+/// save_encoded_private_key()で保存した拡張秘密鍵ファイルを読み込む
+pub fn load_encoded_private_key(config: &Config, passphrase: &str) -> Result<Xpriv, Error> {
+    let xprv_str = encdec::decrypt_from_file(&config.privkey_fname, passphrase)?;
+    Ok(Xpriv::from_str(&xprv_str)?)
 }
 
 pub struct BtcWallet {
@@ -250,13 +274,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone(), save_private_key).unwrap();
+            let _ = BtcWallet::create(config.clone(), save_text_private_key).unwrap();
         }
         {
-            let _ = BtcWallet::load(config.clone(), load_private_key).unwrap();
+            let _ = BtcWallet::load(config.clone(), load_text_private_key).unwrap();
         }
         {
-            let result = BtcWallet::create(config.clone(), save_private_key);
+            let result = BtcWallet::create(config.clone(), save_text_private_key);
             assert!(result.is_err());
         }
     }
@@ -266,7 +290,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let result = BtcWallet::load(config.clone(), load_private_key);
+            let result = BtcWallet::load(config.clone(), load_text_private_key);
             assert!(result.is_err());
         }
     }
@@ -276,11 +300,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone(), save_private_key).unwrap();
+            let _ = BtcWallet::create(config.clone(), save_text_private_key).unwrap();
         }
         {
             std::fs::remove_file(&config.privkey_fname).unwrap();
-            let result = BtcWallet::load(config, load_private_key);
+            let result = BtcWallet::load(config, load_text_private_key);
             assert!(result.is_err());
         }
     }
@@ -290,11 +314,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone(), save_private_key).unwrap();
+            let _ = BtcWallet::create(config.clone(), save_text_private_key).unwrap();
         }
         {
             std::fs::remove_file(&config.wallet_fname).unwrap();
-            let result = BtcWallet::load(config.clone(), load_private_key);
+            let result = BtcWallet::load(config.clone(), load_text_private_key);
             assert!(result.is_err());
         }
     }
@@ -303,7 +327,7 @@ mod tests {
     fn test_parse_txid_hex() {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
-        let wallet = BtcWallet::create(config.clone(), save_private_key).unwrap();
+        let wallet = BtcWallet::create(config.clone(), save_text_private_key).unwrap();
 
         // empty
         let txid_str = "";
