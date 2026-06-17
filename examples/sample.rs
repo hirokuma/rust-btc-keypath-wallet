@@ -25,9 +25,21 @@ fn main() -> Result<()> {
         },
     };
 
+    let passphrase = "SuperSecurePassword123!";
+    let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
+        btc_wallet::save_encoded_private_key(xprv, config, passphrase)
+    };
+    let load_privkey = |config: &Config| btc_wallet::load_encoded_private_key(config, passphrase);
+
     let mut wallet = match config.privkey_fname.exists() {
-        true => BtcWallet::load(config, btc_wallet::load_private_key),
-        false => BtcWallet::create(config, btc_wallet::save_private_key),
+        true => {
+            tracing::info!("load wallet");
+            BtcWallet::load(config, load_privkey)
+        }
+        false => {
+            tracing::info!("create wallet");
+            BtcWallet::create(config, save_privkey)
+        }
     }
     .inspect_err(|e| error!("wallet: {e}"))?;
     debug!("wallet created/loaded: {}", wallet.config.network);

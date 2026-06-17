@@ -5,24 +5,15 @@ use thiserror::Error;
 use bdk_wallet::{
     KeychainKind,
     bitcoin::{Transaction, Txid},
-    chain::{
-        local_chain::CannotConnectError,
-        spk_client::{FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse},
+    chain::spk_client::{
+        FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
     },
 };
-
-use crate::config;
 
 #[derive(Error, Debug)]
 pub enum BackendError {
     #[error(transparent)]
-    Config(#[from] config::ConfigError),
-
-    #[error(transparent)]
     Electrum(#[from] electrum_client::Error),
-
-    #[error(transparent)]
-    CannotConnect(#[from] CannotConnectError),
 }
 
 pub trait BackendRpc: Send + Sync {

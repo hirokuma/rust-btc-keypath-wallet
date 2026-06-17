@@ -25,9 +25,6 @@ use crate::{config::Config, logger::*};
 #[derive(Error, Debug)]
 pub enum WalletError {
     #[error(transparent)]
-    File(#[from] std::io::Error),
-
-    #[error(transparent)]
     CreateWallet(#[from] CreateWithPersistError<bdk_wallet::rusqlite::Error>),
 
     #[error(transparent)]
