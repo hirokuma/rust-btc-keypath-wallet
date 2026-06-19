@@ -292,6 +292,7 @@ dependencies = [
  "tracing",
  "tracing-log",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]

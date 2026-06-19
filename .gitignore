@@ -1,5 +1,6 @@
 /target
 /.vscode
+/.devin
 
 *.log
 *.txt
