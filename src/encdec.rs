@@ -60,11 +60,11 @@ pub enum EncDecError {
     #[error("Invalid length: {0}")]
     InvalidLength(&'static str),
 
-    #[error("Invalid version: expect={expect}, real={real}")]
-    InvalidVersion { expect: u32, real: u32 },
+    #[error("Unknown version: {version}")]
+    UnknownVersion { version: u32 },
 }
 
-struct DecFile<'a> {
+struct DecData<'a> {
     salt_bytes: &'a [u8],
     nonce_bytes: &'a [u8],
     ciphertext: &'a [u8],
@@ -76,7 +76,8 @@ struct DecFile<'a> {
 // - Nonce : 24 bytes
 // - Message : ...
 
-const VERSION: u32 = 0x0000_0000_0000_0001;
+const VERSION_V1: u32 = 0x0000_0000_0000_0001;
+const VERSION_LATEST: u32 = VERSION_V1;
 const SALT_LEN: usize = Salt::RECOMMENDED_LENGTH; // Argon2id用のソルト長
 const NONCE_LEN: usize = 24; // XChaCha20Poly1305用のナンス長
 const KEY_LEN: usize = 32; // 派生させる鍵の長さ
@@ -141,18 +142,30 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
             reason: "decrypt file",
             source: e,
         })?;
-    let df = decode_file(&file_content)?;
+    if file_content.len() < 4 {
+        return Err(EncDecError::InvalidLength("less than file version"));
+    }
+    let version_bytes: [u8; 4] = file_content[0..4]
+        .try_into()
+        .map_err(|_e| EncDecError::InvalidLength("fail convert version"))?;
+    let version = u32::from_le_bytes(version_bytes);
+    let dec_data = match version {
+        VERSION_V1 => decode_file_v1(&file_content[4..])?,
+        _ => {
+            return Err(EncDecError::UnknownVersion { version });
+        }
+    };
 
-    let mut derived_key = derive_key(passphrase.as_bytes(), df.salt_bytes)?;
+    let mut derived_key = derive_key(passphrase.as_bytes(), dec_data.salt_bytes)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&derived_key)
         .map_err(|e| EncDecError::ChaCha(format!("new_from_slice: {e}")))?;
 
     let payload = Payload {
-        msg: df.ciphertext,
+        msg: dec_data.ciphertext,
         aad: AAD,
     };
     let decrypted_bytes = cipher
-        .decrypt(XNonce::from_slice(df.nonce_bytes), payload)
+        .decrypt(XNonce::from_slice(dec_data.nonce_bytes), payload)
         .map_err(|e| EncDecError::ChaCha(format!("decrypt: {e}")))?;
     derived_key.zeroize();
 
@@ -195,7 +208,7 @@ fn write_file(
         path: target_dir.to_path_buf(),
         source: e,
     })?;
-    let version_bytes: [u8; 4] = VERSION.to_le_bytes();
+    let version_bytes: [u8; 4] = VERSION_LATEST.to_le_bytes();
     file.write_all(&version_bytes)
         .map_err(|e| EncDecError::WriteFile {
             reason: "version",
@@ -231,33 +244,22 @@ fn write_file(
     Ok(())
 }
 
-fn decode_file<'a>(file_content: &'a [u8]) -> Result<DecFile<'a>, EncDecError> {
+fn decode_file_v1<'a>(file_content: &'a [u8]) -> Result<DecData<'a>, EncDecError> {
     // データの長さが最低限（ソルト＋ナンス）あるかチェック
-    if file_content.len() < (4 + SALT_LEN + NONCE_LEN) {
+    if file_content.len() < SALT_LEN + NONCE_LEN {
         return Err(EncDecError::InvalidLength(
             "Invalid file format: file too short",
         ));
     }
 
     let mut s = 0;
-    let version_bytes: [u8; 4] = file_content[s..4]
-        .try_into()
-        .map_err(|_e| EncDecError::InvalidLength("fail convert version"))?;
-    s += 4;
-    let version = u32::from_le_bytes(version_bytes);
-    if version != VERSION {
-        return Err(EncDecError::InvalidVersion {
-            expect: VERSION,
-            real: version,
-        });
-    }
     let salt_bytes = &file_content[s..s + SALT_LEN];
     s += SALT_LEN;
     let nonce_bytes = &file_content[s..(s + NONCE_LEN)];
     s += NONCE_LEN;
     let ciphertext = &file_content[s..];
 
-    Ok(DecFile {
+    Ok(DecData {
         salt_bytes,
         nonce_bytes,
         ciphertext,
