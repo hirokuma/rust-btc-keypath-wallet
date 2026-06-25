@@ -12,6 +12,7 @@ use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit, Payload},
 };
+use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use zeroize::Zeroize;
@@ -48,6 +49,18 @@ pub enum EncDecError {
         source: FromUtf8Error,
     },
 
+    #[error("WinCode write error: {reason}: {source}")]
+    WinCodeWrite {
+        reason: &'static str,
+        source: wincode::WriteError,
+    },
+
+    #[error("WinCode read error: {reason}: {source}")]
+    WinCodeRead {
+        reason: &'static str,
+        source: wincode::ReadError,
+    },
+
     #[error("Argon error: {0}")]
     Argon(String),
 
@@ -64,24 +77,20 @@ pub enum EncDecError {
     UnknownVersion { version: u32 },
 }
 
-struct DecData<'a> {
+const VERSION_V1: u32 = 0x0000_0000_0000_0001;
+const SALT_LEN_V1: usize = Salt::RECOMMENDED_LENGTH; // Argon2id用のソルト長
+const NONCE_LEN_V1: usize = 24; // XChaCha20Poly1305用のナンス長
+const KEY_LEN_V1: usize = 32; // 派生させる鍵の長さ
+const AAD_V1: &[u8] = b"https://github.com/hirokuma/rust-btc-keypath-wallet.git";
+
+#[derive(wincode::SchemaWrite, wincode::SchemaRead, Deserialize, Debug)]
+struct FormatV1<'a> {
     salt_bytes: &'a [u8],
     nonce_bytes: &'a [u8],
     ciphertext: &'a [u8],
 }
 
-// File format : 0x0000_0000_0000_0001
-// - Version : 4 bytes(little endian)
-// - Salt : 16 bytes
-// - Nonce : 24 bytes
-// - Message : ...
-
-const VERSION_V1: u32 = 0x0000_0000_0000_0001;
 const VERSION_LATEST: u32 = VERSION_V1;
-const SALT_LEN: usize = Salt::RECOMMENDED_LENGTH; // Argon2id用のソルト長
-const NONCE_LEN: usize = 24; // XChaCha20Poly1305用のナンス長
-const KEY_LEN: usize = 32; // 派生させる鍵の長さ
-const AAD: &[u8] = b"https://github.com/hirokuma/rust-btc-keypath-wallet.git";
 
 /// パスフレーズを用いてデータを暗号化し、ファイルに保存する
 ///
@@ -97,22 +106,27 @@ const AAD: &[u8] = b"https://github.com/hirokuma/rust-btc-keypath-wallet.git";
 /// - `Argon(...)`: Argon2処理エラー
 /// - `ChaCha(...)`: ChaCha20Poly1305処理エラー
 pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), EncDecError> {
-    let salt_bytes: [u8; SALT_LEN] = generate_random_bytes();
-    let nonce_bytes: [u8; NONCE_LEN] = generate_random_bytes();
+    let salt_bytes: [u8; SALT_LEN_V1] = generate_random_bytes();
+    let nonce_bytes: [u8; NONCE_LEN_V1] = generate_random_bytes();
 
     let mut derived_key = derive_key(passphrase.as_bytes(), &salt_bytes)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&derived_key)
         .map_err(|e| EncDecError::ChaCha(format!("new_from_slice: {e}")))?;
     let payload = Payload {
         msg: data.as_bytes(),
-        aad: AAD,
+        aad: AAD_V1,
     };
     let ciphertext = cipher
         .encrypt(XNonce::from_slice(&nonce_bytes), payload)
         .map_err(|e| EncDecError::ChaCha(format!("encrypt: {e}")))?;
     derived_key.zeroize();
 
-    write_file(path, &salt_bytes, &nonce_bytes, &ciphertext)?;
+    let enc_data = FormatV1 {
+        salt_bytes: &salt_bytes,
+        nonce_bytes: &nonce_bytes,
+        ciphertext: &ciphertext,
+    };
+    write_file_v1(path, &enc_data)?;
 
     Ok(())
 }
@@ -150,7 +164,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
         .map_err(|_e| EncDecError::InvalidLength("fail convert version"))?;
     let version = u32::from_le_bytes(version_bytes);
     let dec_data = match version {
-        VERSION_V1 => decode_file_v1(&file_content[4..])?,
+        VERSION_V1 => read_file_v1(&file_content[4..])?,
         _ => {
             return Err(EncDecError::UnknownVersion { version });
         }
@@ -162,7 +176,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
 
     let payload = Payload {
         msg: dec_data.ciphertext,
-        aad: AAD,
+        aad: AAD_V1,
     };
     let decrypted_bytes = cipher
         .decrypt(XNonce::from_slice(dec_data.nonce_bytes), payload)
@@ -183,29 +197,29 @@ fn generate_random_bytes<const N: usize>() -> [u8; N] {
     bytes
 }
 
-fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN], EncDecError> {
+fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN_V1], EncDecError> {
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
         argon2::Params::default(),
     );
 
-    let mut key = [0u8; KEY_LEN];
+    let mut key = [0u8; KEY_LEN_V1];
     argon2
         .hash_password_into(passphrase, salt, &mut key)
         .map_err(|e| EncDecError::Argon(format!("failed to hash password: {e}")))?;
     Ok(key)
 }
 
-fn write_file(
-    path: &Path,
-    salt_bytes: &[u8],
-    nonce_bytes: &[u8],
-    ciphertext: &[u8],
-) -> Result<(), EncDecError> {
+// Read private key file version 1
+fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     let target_dir = path.parent().unwrap_or(Path::new("."));
     let mut file = NamedTempFile::new_in(target_dir).map_err(|e| EncDecError::CreateFile {
         path: target_dir.to_path_buf(),
+        source: e,
+    })?;
+    let enc = wincode::serialize(enc_data).map_err(|e| EncDecError::WinCodeWrite {
+        reason: "serialize format v1",
         source: e,
     })?;
     let version_bytes: [u8; 4] = VERSION_LATEST.to_le_bytes();
@@ -214,27 +228,10 @@ fn write_file(
             reason: "version",
             source: e,
         })?;
-    file.write_all(salt_bytes)
-        .map_err(|e| EncDecError::WriteFile {
-            reason: "salt_bytes",
-            source: e,
-        })?;
-    file.write_all(nonce_bytes)
-        .map_err(|e| EncDecError::WriteFile {
-            reason: "nonce_bytes",
-            source: e,
-        })?;
-    file.write_all(ciphertext)
-        .map_err(|e| EncDecError::WriteFile {
-            reason: "ciphertext",
-            source: e,
-        })?;
-    file.as_file()
-        .sync_all()
-        .map_err(|e| EncDecError::WriteFile {
-            reason: "sync_all",
-            source: e,
-        })?;
+    file.write_all(&enc).map_err(|e| EncDecError::WriteFile {
+        reason: "write format v1",
+        source: e,
+    })?;
     file.persist(path)
         .map_err(|e| e.error)
         .map_err(|e| EncDecError::CreateFile {
@@ -244,24 +241,12 @@ fn write_file(
     Ok(())
 }
 
-fn decode_file_v1<'a>(file_content: &'a [u8]) -> Result<DecData<'a>, EncDecError> {
-    // データの長さが最低限（ソルト＋ナンス）あるかチェック
-    if file_content.len() < SALT_LEN + NONCE_LEN {
-        return Err(EncDecError::InvalidLength(
-            "Invalid file format: file too short",
-        ));
-    }
-
-    let mut s = 0;
-    let salt_bytes = &file_content[s..s + SALT_LEN];
-    s += SALT_LEN;
-    let nonce_bytes = &file_content[s..(s + NONCE_LEN)];
-    s += NONCE_LEN;
-    let ciphertext = &file_content[s..];
-
-    Ok(DecData {
-        salt_bytes,
-        nonce_bytes,
-        ciphertext,
-    })
+// Read private key file version 1
+fn read_file_v1<'a>(file_content: &'a [u8]) -> Result<FormatV1<'a>, EncDecError> {
+    let dec: FormatV1 =
+        wincode::deserialize(file_content).map_err(|e| EncDecError::WinCodeRead {
+            reason: "deserilize format v1",
+            source: e,
+        })?;
+    Ok(dec)
 }
