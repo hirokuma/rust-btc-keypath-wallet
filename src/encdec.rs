@@ -22,50 +22,66 @@ pub enum EncDecError {
     #[error("Create file error: {path}: {source}")]
     CreateFile {
         path: PathBuf,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Open file error: {path}: {source}")]
     OpenFile {
         path: PathBuf,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Write file error: {reason}: {source}")]
     WriteFile {
         reason: &'static str,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Read file error: {reason}: {source}")]
     ReadFile {
         reason: &'static str,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Convert UTF8: {reason}: {source}")]
     ConvUtf8 {
         reason: &'static str,
+        #[source]
         source: FromUtf8Error,
     },
 
     #[error("WinCode write error: {reason}: {source}")]
     WinCodeWrite {
         reason: &'static str,
+        #[source]
         source: wincode::WriteError,
     },
 
     #[error("WinCode read error: {reason}: {source}")]
     WinCodeRead {
         reason: &'static str,
+        #[source]
         source: wincode::ReadError,
     },
 
-    #[error("Argon error: {0}")]
-    Argon(String),
+    #[error("Argon2 error: {reason}: {err}")]
+    Argon2 {
+        reason: &'static str,
+        err: argon2::Error,
+    },
 
-    #[error("ChaCha error: {0}")]
-    ChaCha(String),
+    #[error("CryptoInvalidLen error: {reason}")]
+    CryptoInvalidLen { reason: &'static str },
+
+    #[error("ChaCha error: {reason}: {err}")]
+    ChaCha {
+        reason: &'static str,
+        err: chacha20poly1305::aead::Error,
+    },
 
     #[error("Hash is None: {0}")]
     HashNone(&'static str),
@@ -110,15 +126,21 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
     let nonce_bytes: [u8; NONCE_LEN_V1] = generate_random_bytes();
 
     let mut derived_key = derive_key(passphrase.as_bytes(), &salt_bytes)?;
-    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key)
-        .map_err(|e| EncDecError::ChaCha(format!("new_from_slice: {e}")))?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key).map_err(|_e| {
+        EncDecError::CryptoInvalidLen {
+            reason: "encrypt new_from_slice",
+        }
+    })?;
     let payload = Payload {
         msg: data.as_bytes(),
         aad: AAD_V1,
     };
     let ciphertext = cipher
         .encrypt(XNonce::from_slice(&nonce_bytes), payload)
-        .map_err(|e| EncDecError::ChaCha(format!("encrypt: {e}")))?;
+        .map_err(|e| EncDecError::ChaCha {
+            reason: "encrypt",
+            err: e,
+        })?;
     derived_key.zeroize();
 
     let enc_data = FormatV1 {
@@ -171,8 +193,11 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     };
 
     let mut derived_key = derive_key(passphrase.as_bytes(), dec_data.salt_bytes)?;
-    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key)
-        .map_err(|e| EncDecError::ChaCha(format!("new_from_slice: {e}")))?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key).map_err(|_e| {
+        EncDecError::CryptoInvalidLen {
+            reason: "decrypt new_from_slice",
+        }
+    })?;
 
     let payload = Payload {
         msg: dec_data.ciphertext,
@@ -180,7 +205,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     };
     let decrypted_bytes = cipher
         .decrypt(XNonce::from_slice(dec_data.nonce_bytes), payload)
-        .map_err(|e| EncDecError::ChaCha(format!("decrypt: {e}")))?;
+        .map_err(|e| EncDecError::ChaCha { reason: "", err: e })?;
     derived_key.zeroize();
 
     let decrypted_string =
@@ -207,7 +232,10 @@ fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN_V1], EncDec
     let mut key = [0u8; KEY_LEN_V1];
     argon2
         .hash_password_into(passphrase, salt, &mut key)
-        .map_err(|e| EncDecError::Argon(format!("failed to hash password: {e}")))?;
+        .map_err(|e| EncDecError::Argon2 {
+            reason: "failed to hash password",
+            err: e,
+        })?;
     Ok(key)
 }
 
