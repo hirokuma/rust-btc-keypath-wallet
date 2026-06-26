@@ -22,56 +22,77 @@ pub enum EncDecError {
     #[error("Create file error: {path}: {source}")]
     CreateFile {
         path: PathBuf,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Open file error: {path}: {source}")]
     OpenFile {
         path: PathBuf,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Write file error: {reason}: {source}")]
     WriteFile {
+        path: PathBuf,
         reason: &'static str,
+        #[source]
         source: std::io::Error,
     },
 
     #[error("Read file error: {reason}: {source}")]
     ReadFile {
+        path: PathBuf,
         reason: &'static str,
+        #[source]
         source: std::io::Error,
     },
 
-    #[error("Convert UTF8: {reason}: {source}")]
+    #[error("Convert UTF8 error: {reason}: {source}")]
     ConvUtf8 {
         reason: &'static str,
+        #[source]
         source: FromUtf8Error,
     },
 
     #[error("WinCode write error: {reason}: {source}")]
     WinCodeWrite {
         reason: &'static str,
+        #[source]
         source: wincode::WriteError,
     },
 
     #[error("WinCode read error: {reason}: {source}")]
     WinCodeRead {
         reason: &'static str,
+        #[source]
         source: wincode::ReadError,
     },
 
-    #[error("Argon error: {0}")]
-    Argon(String),
+    #[error("Argon2 error: {reason}: {err}")]
+    Argon2 {
+        reason: &'static str,
+        err: argon2::Error,
+    },
 
-    #[error("ChaCha error: {0}")]
-    ChaCha(String),
+    #[error("Crypto invalid length error: {reason}")]
+    CryptoInvalidLen { reason: &'static str },
+
+    #[error("ChaCha error: {reason}: {err}")]
+    ChaCha {
+        reason: &'static str,
+        err: chacha20poly1305::aead::Error,
+    },
 
     #[error("Hash is None: {0}")]
     HashNone(&'static str),
 
     #[error("Invalid length: {0}")]
     InvalidLength(&'static str),
+
+    #[error("Invalid data: {0}")]
+    InvalidData(&'static str),
 
     #[error("Unknown version: {version}")]
     UnknownVersion { version: u32 },
@@ -109,16 +130,26 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
     let salt_bytes: [u8; SALT_LEN_V1] = generate_random_bytes();
     let nonce_bytes: [u8; NONCE_LEN_V1] = generate_random_bytes();
 
-    let mut derived_key = derive_key(passphrase.as_bytes(), &salt_bytes)?;
-    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key)
-        .map_err(|e| EncDecError::ChaCha(format!("new_from_slice: {e}")))?;
+    let mut derived_key =
+        derive_key(passphrase.as_bytes(), &salt_bytes).map_err(|e| EncDecError::Argon2 {
+            reason: "failed to hash password on encrypt",
+            err: e,
+        })?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key).map_err(|_e| {
+        EncDecError::CryptoInvalidLen {
+            reason: "new_from_slice on encrypt",
+        }
+    })?;
     let payload = Payload {
         msg: data.as_bytes(),
         aad: AAD_V1,
     };
     let ciphertext = cipher
         .encrypt(XNonce::from_slice(&nonce_bytes), payload)
-        .map_err(|e| EncDecError::ChaCha(format!("encrypt: {e}")))?;
+        .map_err(|e| EncDecError::ChaCha {
+            reason: "encrypt",
+            err: e,
+        })?;
     derived_key.zeroize();
 
     let enc_data = FormatV1 {
@@ -153,6 +184,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     let mut file_content = Vec::new();
     file.read_to_end(&mut file_content)
         .map_err(|e| EncDecError::ReadFile {
+            path: path.to_path_buf(),
             reason: "decrypt file",
             source: e,
         })?;
@@ -161,7 +193,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     }
     let version_bytes: [u8; 4] = file_content[0..4]
         .try_into()
-        .map_err(|_e| EncDecError::InvalidLength("fail convert version"))?;
+        .map_err(|_e| EncDecError::InvalidData("fail convert version"))?;
     let version = u32::from_le_bytes(version_bytes);
     let dec_data = match version {
         VERSION_V1 => read_file_v1(&file_content[4..])?,
@@ -170,9 +202,17 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
         }
     };
 
-    let mut derived_key = derive_key(passphrase.as_bytes(), dec_data.salt_bytes)?;
-    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key)
-        .map_err(|e| EncDecError::ChaCha(format!("new_from_slice: {e}")))?;
+    let mut derived_key = derive_key(passphrase.as_bytes(), dec_data.salt_bytes).map_err(|e| {
+        EncDecError::Argon2 {
+            reason: "failed to hash password on decrypt",
+            err: e,
+        }
+    })?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&derived_key).map_err(|_e| {
+        EncDecError::CryptoInvalidLen {
+            reason: "new_from_slice on decrypt",
+        }
+    })?;
 
     let payload = Payload {
         msg: dec_data.ciphertext,
@@ -180,7 +220,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     };
     let decrypted_bytes = cipher
         .decrypt(XNonce::from_slice(dec_data.nonce_bytes), payload)
-        .map_err(|e| EncDecError::ChaCha(format!("decrypt: {e}")))?;
+        .map_err(|e| EncDecError::ChaCha { reason: "", err: e })?;
     derived_key.zeroize();
 
     let decrypted_string =
@@ -197,7 +237,7 @@ fn generate_random_bytes<const N: usize>() -> [u8; N] {
     bytes
 }
 
-fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN_V1], EncDecError> {
+fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN_V1], argon2::Error> {
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
@@ -205,9 +245,7 @@ fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN_V1], EncDec
     );
 
     let mut key = [0u8; KEY_LEN_V1];
-    argon2
-        .hash_password_into(passphrase, salt, &mut key)
-        .map_err(|e| EncDecError::Argon(format!("failed to hash password: {e}")))?;
+    argon2.hash_password_into(passphrase, salt, &mut key)?;
     Ok(key)
 }
 
@@ -225,10 +263,12 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     let version_bytes: [u8; 4] = VERSION_LATEST.to_le_bytes();
     file.write_all(&version_bytes)
         .map_err(|e| EncDecError::WriteFile {
+            path: path.to_path_buf(),
             reason: "version",
             source: e,
         })?;
     file.write_all(&enc).map_err(|e| EncDecError::WriteFile {
+        path: path.to_path_buf(),
         reason: "write format v1",
         source: e,
     })?;
