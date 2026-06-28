@@ -4,18 +4,24 @@ use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::logger::trace;
-
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error(transparent)]
-    File(#[from] std::io::Error),
+    #[error("I/O error occurred: reason={reason}, source={source}")]
+    File {
+        path: PathBuf,
+        reason: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
 
-    #[error(transparent)]
-    Toml(#[from] toml::de::Error),
+    #[error("TOML parsing error occurred: source={source}")]
+    Toml {
+        #[source]
+        source: toml::de::Error,
+    },
 
-    #[error("Invalid parameters: {0}")]
-    InvalidParams(&'static str),
+    #[error("No enabled backend")]
+    NoBackend,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -60,15 +66,21 @@ pub struct ElectrumConfig {
 impl Config {
     pub fn new(fname: &str) -> Result<Config, ConfigError> {
         let mut settings = String::new();
-        let mut f =
-            File::open(fname).inspect_err(|e| trace!("fail open file({}): {}", fname, e))?;
+        let mut f = File::open(fname).map_err(|e| ConfigError::File {
+            path: fname.into(),
+            reason: "open",
+            source: e,
+        })?;
         f.read_to_string(&mut settings)
-            .inspect_err(|e| trace!("fail read file({}): {}", fname, e))?;
-        let data: Config = toml::from_str(&settings)
-            .inspect_err(|e| trace!("fail convert config from TOML: {e}"))?;
+            .map_err(|e| ConfigError::File {
+                path: fname.into(),
+                reason: "read_to_string",
+                source: e,
+            })?;
+        let data: Config =
+            toml::from_str(&settings).map_err(|e| ConfigError::Toml { source: e })?;
         if !data.electrum.enabled {
-            trace!("no backend enabled");
-            return Err(ConfigError::InvalidParams("no backend enabled"));
+            return Err(ConfigError::NoBackend);
         }
         Ok(data)
     }
