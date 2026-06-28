@@ -13,7 +13,7 @@ tracing = []
 bdk_wallet = { version = "3.1.0", features = ["rusqlite"] }
 bdk_electrum = "0.24.0"
 
-log = "0.4.32"
+log = "0.4.33"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 toml = "1.1.2"
@@ -25,9 +25,9 @@ tempfile = "3.27.0"
 wincode = { version = "0.5.5", features = ["derive"] }
 
 [dev-dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 clap = { version = "4.6.1", features = ["derive"] }
-env_logger = "0.11.10"
+env_logger = "0.11.11"
 hex = "0.4.3"
 tempfile = "3.27.0"
 tracing-log = "0.2.0"
