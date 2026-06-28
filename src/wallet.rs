@@ -1,4 +1,4 @@
-use std::result::Result;
+use std::{path::PathBuf, result::Result};
 
 use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
@@ -24,34 +24,47 @@ use crate::{config::Config, logger::*};
 
 #[derive(Error, Debug)]
 pub enum WalletError {
-    #[error(transparent)]
-    CreateWallet(#[from] CreateWithPersistError<bdk_wallet::rusqlite::Error>),
+    #[error("Failed to create wallet({path}): {source}")]
+    CreateWallet {
+        path: PathBuf,
+        #[source]
+        source: CreateWithPersistError<rusqlite::Error>,
+    },
 
-    #[error(transparent)]
-    LoadWallet(#[from] LoadWithPersistError<bdk_wallet::rusqlite::Error>),
+    #[error("Failed to load wallet({path}): {source}")]
+    LoadWallet {
+        path: PathBuf,
+        #[source]
+        source: LoadWithPersistError<rusqlite::Error>,
+    },
 
-    #[error(transparent)]
-    OpenWallet(#[from] rusqlite::Error),
+    #[error("Failed to open wallet({path}): reason={reason}: {source}")]
+    OpenWallet {
+        path: PathBuf,
+        reason: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
 
-    #[error(transparent)]
+    #[error("Failed to generate descriptor: {0}")]
     Descriptor(#[from] DescriptorError),
 
-    #[error(transparent)]
+    #[error("Failed to handle Bip32 error: {0}")]
     Bip32(#[from] bip32::Error),
 
-    #[error(transparent)]
+    #[error("Failed to create transaction: {0}")]
     CreateTx(#[from] CreateTxError),
 
-    #[error(transparent)]
+    #[error("Failed to extract transaction: {0}")]
     ExtractTx(#[from] Box<ExtractTxError>),
 
-    #[error(transparent)]
+    #[error("Failed to handle signer error: {0}")]
     Signer(#[from] SignerError),
 
-    #[error("signed but not finalized")]
+    #[error("Transaction is not finalized")]
     TxFinalize,
 
-    #[error("wallet file error: {0}")]
+    #[error("Wallet file error: {0}")]
     WalletFile(&'static str),
 }
 
@@ -89,13 +102,20 @@ impl Wallet {
             &config.wallet_fname,
             OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
         )
-        .inspect_err(|e| trace!("{e}"))?;
+        .map_err(|e| WalletError::OpenWallet {
+            path: config.wallet_fname.clone(),
+            reason: "create wallet",
+            source: e,
+        })?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
         let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
         let wallet = BdkWallet::create(external_descriptor_priv, internal_descriptor_priv)
             .network(config.network)
             .create_wallet(&mut conn)
-            .inspect_err(|e| trace!("{e}"))?;
+            .map_err(|e| WalletError::CreateWallet {
+                path: config.wallet_fname.clone(),
+                source: e,
+            })?;
 
         Ok((Wallet { wallet, conn }, xprv))
     }
@@ -105,7 +125,12 @@ impl Wallet {
             return Err(WalletError::WalletFile("wallet file not exists"));
         }
         let mut conn =
-            Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+            Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .map_err(|e| WalletError::OpenWallet {
+                    path: config.wallet_fname.clone(),
+                    reason: "load wallet",
+                    source: e,
+                })?;
         let kind = NetworkKind::from(config.network);
         let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
         let (change_descriptor, change_key_map, _) =
@@ -118,7 +143,11 @@ impl Wallet {
             .descriptor(KeychainKind::Internal, Some(internal_descriptor_priv))
             .extract_keys()
             .check_network(config.network)
-            .load_wallet(&mut conn)?;
+            .load_wallet(&mut conn)
+            .map_err(|e| WalletError::LoadWallet {
+                path: config.wallet_fname.clone(),
+                source: e,
+            })?;
         let wallet = match wallet_opt {
             Some(wallet) => wallet,
             None => {
