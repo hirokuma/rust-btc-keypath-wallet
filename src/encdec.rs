@@ -19,58 +19,36 @@ use zeroize::Zeroize;
 
 #[derive(Error, Debug)]
 pub enum EncDecError {
-    #[error("Create file error: {path}: {source}")]
-    CreateFile {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-
-    #[error("Open file error: {path}: {source}")]
-    OpenFile {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-
-    #[error("Write file error: {reason}: {source}")]
-    WriteFile {
+    #[error("I/O error({path}): reason={reason}: {source}")]
+    Io {
         path: PathBuf,
         reason: &'static str,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("Read file error: {reason}: {source}")]
-    ReadFile {
-        path: PathBuf,
-        reason: &'static str,
-        #[source]
-        source: std::io::Error,
-    },
-
-    #[error("Convert UTF8 error: {reason}: {source}")]
+    #[error("Convert UTF8 error: reason={reason}: {source}")]
     ConvUtf8 {
         reason: &'static str,
         #[source]
         source: FromUtf8Error,
     },
 
-    #[error("WinCode write error: {reason}: {source}")]
+    #[error("WinCode write error: reason={reason}: {source}")]
     WinCodeWrite {
         reason: &'static str,
         #[source]
         source: wincode::WriteError,
     },
 
-    #[error("WinCode read error: {reason}: {source}")]
+    #[error("WinCode read error: reason={reason}: {source}")]
     WinCodeRead {
         reason: &'static str,
         #[source]
         source: wincode::ReadError,
     },
 
-    #[error("Argon2 error: {reason}: {err}")]
+    #[error("Argon2 error: reason={reason}: {err}")]
     Argon2 {
         reason: &'static str,
         err: argon2::Error,
@@ -177,15 +155,16 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
 /// - 復号後はすぐにゼロ埋めされる
 pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDecError> {
     // 1. ファイル全体の読み込み
-    let mut file = File::open(path).map_err(|e| EncDecError::OpenFile {
+    let mut file = File::open(path).map_err(|e| EncDecError::Io {
         path: path.to_path_buf(),
+        reason: "open decrypt file",
         source: e,
     })?;
     let mut file_content = Vec::new();
     file.read_to_end(&mut file_content)
-        .map_err(|e| EncDecError::ReadFile {
+        .map_err(|e| EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "decrypt file",
+            reason: "read decrypt file",
             source: e,
         })?;
     if file_content.len() < 4 {
@@ -252,8 +231,9 @@ fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<[u8; KEY_LEN_V1], argon2
 // Read private key file version 1
 fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     let target_dir = path.parent().unwrap_or(Path::new("."));
-    let mut file = NamedTempFile::new_in(target_dir).map_err(|e| EncDecError::CreateFile {
+    let mut file = NamedTempFile::new_in(target_dir).map_err(|e| EncDecError::Io {
         path: target_dir.to_path_buf(),
+        reason: "create temporary file",
         source: e,
     })?;
     let enc = wincode::serialize(enc_data).map_err(|e| EncDecError::WinCodeWrite {
@@ -262,22 +242,21 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     })?;
     let version_bytes: [u8; 4] = VERSION_LATEST.to_le_bytes();
     file.write_all(&version_bytes)
-        .map_err(|e| EncDecError::WriteFile {
+        .map_err(|e| EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "version",
+            reason: "write version",
             source: e,
         })?;
-    file.write_all(&enc).map_err(|e| EncDecError::WriteFile {
+    file.write_all(&enc).map_err(|e| EncDecError::Io {
         path: path.to_path_buf(),
         reason: "write format v1",
         source: e,
     })?;
-    file.persist(path)
-        .map_err(|e| e.error)
-        .map_err(|e| EncDecError::CreateFile {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+    file.persist(path).map_err(|e| EncDecError::Io {
+        path: path.to_path_buf(),
+        reason: "temporary to real",
+        source: e.error,
+    })?;
     Ok(())
 }
 
