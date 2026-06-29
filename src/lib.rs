@@ -22,7 +22,6 @@ use bdk_wallet::{
     chain::local_chain::CannotConnectError,
 };
 use std::{fs::File, io::prelude::*, result::Result, str::FromStr, sync::Arc};
-use thiserror::Error;
 
 use crate::{
     backend::{BackendError, BackendRpc},
@@ -32,39 +31,39 @@ use crate::{
     wallet::{Wallet, WalletError},
 };
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error(transparent)]
+    #[error("Configuration error occurred: {0}")]
     Config(#[from] ConfigError),
 
-    #[error(transparent)]
+    #[error("Backend error occurred: {0}")]
     Backend(#[from] BackendError),
 
-    #[error(transparent)]
+    #[error("Encryption/Decryption error occurred: {0}")]
     EncDec(#[from] EncDecError),
 
-    #[error(transparent)]
+    #[error("Connection error occurred: {0}")]
     CannotConnect(#[from] CannotConnectError),
 
-    #[error(transparent)]
+    #[error("Wallet operation error occurred: {0}")]
     Wallet(#[from] WalletError),
 
-    #[error(transparent)]
+    #[error("Transaction conversion error occurred: {0}")]
     TxConvert(#[from] FromHexError),
 
-    #[error(transparent)]
+    #[error("Transaction ID conversion error occurred: {0}")]
     TxidConvert(#[from] HexToArrayError),
 
-    #[error(transparent)]
+    #[error("Address parsing error occurred: {0}")]
     Parse(#[from] ParseError),
 
-    #[error(transparent)]
+    #[error("File I/O error occurred: {0}")]
     PrivkeyFile(#[from] std::io::Error),
 
-    #[error(transparent)]
+    #[error("BIP32 operation error occurred: {0}")]
     Bip32(#[from] bip32::Error),
 
-    #[error("Callback function error: {0}")]
+    #[error("Callback function failed: {0}")]
     Callback(String),
 }
 
