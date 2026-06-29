@@ -12,8 +12,12 @@ use bdk_wallet::{
 
 #[derive(Error, Debug)]
 pub enum BackendError {
-    #[error(transparent)]
-    Electrum(#[from] electrum_client::Error),
+    #[error("Electrum client error occurred: reason={reason}, source={source}")]
+    Electrum {
+        reason: String,
+        #[source]
+        source: electrum_client::Error,
+    },
 }
 
 pub trait BackendRpc: Send + Sync {
