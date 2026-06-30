@@ -46,20 +46,36 @@ pub enum WalletError {
         source: rusqlite::Error,
     },
 
-    #[error("Failed to generate descriptor: {0}")]
-    Descriptor(#[from] DescriptorError),
+    #[error("Failed to generate descriptor: source={source}")]
+    Descriptor {
+        reason: &'static str,
+        #[source]
+        source: DescriptorError,
+    },
 
-    #[error("Failed to handle Bip32 error: {0}")]
-    Bip32(#[from] bip32::Error),
+    #[error("Failed to handle Bip32 error: source={source}")]
+    Bip32 {
+        #[source]
+        source: bip32::Error,
+    },
 
-    #[error("Failed to create transaction: {0}")]
-    CreateTx(#[from] CreateTxError),
+    #[error("Failed to create transaction: source={source}")]
+    CreateTx {
+        #[source]
+        source: CreateTxError,
+    },
 
-    #[error("Failed to extract transaction: {0}")]
-    ExtractTx(#[from] Box<ExtractTxError>),
+    #[error("Failed to extract transaction: source={source}")]
+    ExtractTx {
+        #[source]
+        source: Box<ExtractTxError>,
+    },
 
-    #[error("Failed to handle signer error: {0}")]
-    Signer(#[from] SignerError),
+    #[error("Failed to handle signer error: source={source}")]
+    Signer {
+        #[source]
+        source: SignerError,
+    },
 
     #[error("Transaction is not finalized")]
     TxFinalize,
@@ -94,10 +110,21 @@ impl Wallet {
 impl Wallet {
     pub fn create(config: &Config, seed: &[u8; 32]) -> Result<(Self, Xpriv), WalletError> {
         let kind = NetworkKind::from(config.network);
-        let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
-        let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
-        let (change_descriptor, change_key_map, _) =
-            Bip86(xprv, KeychainKind::Internal).build(kind)?;
+        let xprv: Xpriv = Xpriv::new_master(config.network, seed)
+            .map_err(|e| WalletError::Bip32 { source: e })?;
+        let (descriptor, key_map, _) =
+            Bip86(xprv, KeychainKind::External)
+                .build(kind)
+                .map_err(|e| WalletError::Descriptor {
+                    reason: "create external key",
+                    source: e,
+                })?;
+        let (change_descriptor, change_key_map, _) = Bip86(xprv, KeychainKind::Internal)
+            .build(kind)
+            .map_err(|e| WalletError::Descriptor {
+                reason: "create internal key",
+                source: e,
+            })?;
         let mut conn = Connection::open_with_flags(
             &config.wallet_fname,
             OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -132,9 +159,19 @@ impl Wallet {
                     source: e,
                 })?;
         let kind = NetworkKind::from(config.network);
-        let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
-        let (change_descriptor, change_key_map, _) =
-            Bip86(xprv, KeychainKind::Internal).build(kind)?;
+        let (descriptor, key_map, _) =
+            Bip86(xprv, KeychainKind::External)
+                .build(kind)
+                .map_err(|e| WalletError::Descriptor {
+                    reason: "load external key",
+                    source: e,
+                })?;
+        let (change_descriptor, change_key_map, _) = Bip86(xprv, KeychainKind::Internal)
+            .build(kind)
+            .map_err(|e| WalletError::Descriptor {
+                reason: "load internal key",
+                source: e,
+            })?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
         let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
 
@@ -202,19 +239,27 @@ impl Wallet {
             builder.sighash(sig_hash_type.into());
         }
         builder.fee_rate(fee_rate);
-        let mut psbt = builder.finish()?;
-        let finalized = self.wallet.sign(
-            &mut psbt,
-            SignOptions {
-                trust_witness_utxo: true,
-                allow_all_sighashes,
-                ..Default::default()
-            },
-        )?;
+        let mut psbt = builder
+            .finish()
+            .map_err(|e| WalletError::CreateTx { source: e })?;
+        let finalized = self
+            .wallet
+            .sign(
+                &mut psbt,
+                SignOptions {
+                    trust_witness_utxo: true,
+                    allow_all_sighashes,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| WalletError::Signer { source: e })?;
         if !finalized {
             return Err(WalletError::TxFinalize);
         }
-        let tx = psbt.extract_tx().map_err(Box::new)?;
+        let tx = psbt
+            .extract_tx()
+            .map_err(Box::new)
+            .map_err(|e| WalletError::ExtractTx { source: e })?;
         Ok(tx)
     }
 }
