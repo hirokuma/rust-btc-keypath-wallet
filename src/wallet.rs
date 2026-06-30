@@ -24,21 +24,21 @@ use crate::{config::Config, logger::*};
 
 #[derive(Error, Debug)]
 pub enum WalletError {
-    #[error("Failed to create wallet({path}): {source}")]
+    #[error("create wallet error({source}: {path})")]
     CreateWallet {
         path: PathBuf,
         #[source]
         source: CreateWithPersistError<rusqlite::Error>,
     },
 
-    #[error("Failed to load wallet({path}): {source}")]
+    #[error("load wallet error({source}: {path})")]
     LoadWallet {
         path: PathBuf,
         #[source]
         source: LoadWithPersistError<rusqlite::Error>,
     },
 
-    #[error("Failed to open wallet({path}): reason={reason}: {source}")]
+    #[error("open wallet error({source}: {path}): {reason}")]
     OpenWallet {
         path: PathBuf,
         reason: &'static str,
@@ -46,41 +46,41 @@ pub enum WalletError {
         source: rusqlite::Error,
     },
 
-    #[error("Failed to generate descriptor: source={source}")]
+    #[error("generate descriptor error({source}): {reason}")]
     Descriptor {
         reason: &'static str,
         #[source]
         source: DescriptorError,
     },
 
-    #[error("Failed to handle Bip32 error: source={source}")]
+    #[error("BIP32 error({source})")]
     Bip32 {
         #[source]
         source: bip32::Error,
     },
 
-    #[error("Failed to create transaction: source={source}")]
+    #[error("create transaction error({source})")]
     CreateTx {
         #[source]
         source: CreateTxError,
     },
 
-    #[error("Failed to extract transaction: source={source}")]
+    #[error("extract transaction error({source})")]
     ExtractTx {
         #[source]
         source: Box<ExtractTxError>,
     },
 
-    #[error("Failed to handle signer error: source={source}")]
+    #[error("signer error({source})")]
     Signer {
         #[source]
         source: SignerError,
     },
 
-    #[error("Transaction is not finalized")]
+    #[error("transaction is not finalized")]
     TxFinalize,
 
-    #[error("Wallet file error: {0}")]
+    #[error("wallet file error: {0}")]
     WalletFile(&'static str),
 }
 

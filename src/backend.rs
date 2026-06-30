@@ -12,7 +12,7 @@ use bdk_wallet::{
 
 #[derive(Error, Debug)]
 pub enum BackendError {
-    #[error("Electrum client error occurred: reason={reason}, source={source}")]
+    #[error("Electrum client error({source}): {reason}")]
     Electrum {
         reason: String,
         #[source]

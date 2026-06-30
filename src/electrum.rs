@@ -12,6 +12,7 @@ use bdk_wallet::{
 use crate::{
     backend::{BackendError, BackendRpc},
     config::ElectrumConfig,
+    err_log,
     logger::*,
 };
 
@@ -23,11 +24,12 @@ pub struct ElectrumRpc {
 
 impl ElectrumRpc {
     pub fn new(config: &ElectrumConfig) -> Result<ElectrumRpc, BackendError> {
-        let client =
-            electrum_client::Client::new(&config.server).map_err(|e| BackendError::Electrum {
+        let client = electrum_client::Client::new(&config.server).map_err(|e| {
+            err_log!(BackendError::Electrum {
                 reason: format!("electrum_client::Client::new({})", config.server),
                 source: e,
-            })?;
+            })
+        })?;
         let client = BdkElectrumClient::new(client);
         Ok(ElectrumRpc {
             client,
@@ -45,12 +47,14 @@ impl BackendRpc for ElectrumRpc {
         let update = self
             .client
             .full_scan(req, self.gap_limit, self.batch_size, false)
-            .map_err(|e| BackendError::Electrum {
-                reason: format!(
-                    "initial_scan:full_scan(gap_limit={}, batch_size={})",
-                    self.gap_limit, self.batch_size
-                ),
-                source: e,
+            .map_err(|e| {
+                err_log!(BackendError::Electrum {
+                    reason: format!(
+                        "initial_scan:full_scan(gap_limit={}, batch_size={})",
+                        self.gap_limit, self.batch_size
+                    ),
+                    source: e,
+                })
             })?;
         debug!("full_scan done");
         Ok(update)
@@ -60,30 +64,28 @@ impl BackendRpc for ElectrumRpc {
         &self,
         req: SyncRequestBuilder<(KeychainKind, u32)>,
     ) -> Result<SyncResponse, BackendError> {
-        let update =
-            self.client
-                .sync(req, self.batch_size, false)
-                .map_err(|e| BackendError::Electrum {
-                    reason: format!("sync:sync(batch_size={})", self.batch_size),
-                    source: e,
-                })?;
+        let update = self.client.sync(req, self.batch_size, false).map_err(|e| {
+            err_log!(BackendError::Electrum {
+                reason: format!("sync:sync(batch_size={})", self.batch_size),
+                source: e,
+            })
+        })?;
         debug!("sync done");
         Ok(update)
     }
 
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError> {
-        self.client
-            .fetch_tx(txid)
-            .map_err(|e| BackendError::Electrum {
+        self.client.fetch_tx(txid).map_err(|e| {
+            err_log!(BackendError::Electrum {
                 reason: format!("get_tx:fetch_tx(txid={})", txid),
                 source: e,
             })
+        })
     }
 
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError> {
-        self.client
-            .transaction_broadcast(tx)
-            .map_err(|e| BackendError::Electrum {
+        self.client.transaction_broadcast(tx).map_err(|e| {
+            err_log!(BackendError::Electrum {
                 reason: format!(
                     "send_tx:transaction_broadcast(inputs={}, outputs={})",
                     tx.input.len(),
@@ -91,5 +93,6 @@ impl BackendRpc for ElectrumRpc {
                 ),
                 source: e,
             })
+        })
     }
 }

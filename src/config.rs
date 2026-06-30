@@ -4,9 +4,11 @@ use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::{err_log, logger::*};
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("I/O error occurred: reason={reason}, source={source}")]
+    #[error("I/O error({source}): {reason}")]
     File {
         path: PathBuf,
         reason: &'static str,
@@ -14,13 +16,13 @@ pub enum ConfigError {
         source: std::io::Error,
     },
 
-    #[error("TOML parsing error occurred: source={source}")]
+    #[error("TOML parsing error({source})")]
     Toml {
         #[source]
         source: toml::de::Error,
     },
 
-    #[error("No enabled backend")]
+    #[error("no enabled backend")]
     NoBackend,
 }
 
@@ -71,14 +73,15 @@ impl Config {
             reason: "open",
             source: e,
         })?;
-        f.read_to_string(&mut settings)
-            .map_err(|e| ConfigError::File {
+        f.read_to_string(&mut settings).map_err(|e| {
+            err_log!(ConfigError::File {
                 path: fname.into(),
                 reason: "read_to_string",
                 source: e,
-            })?;
+            })
+        })?;
         let data: Config =
-            toml::from_str(&settings).map_err(|e| ConfigError::Toml { source: e })?;
+            toml::from_str(&settings).map_err(|e| err_log!(ConfigError::Toml { source: e }))?;
         if !data.electrum.enabled {
             return Err(ConfigError::NoBackend);
         }

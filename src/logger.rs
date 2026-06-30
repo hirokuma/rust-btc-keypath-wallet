@@ -1,7 +1,7 @@
 #[cfg(feature = "tracing")]
 #[allow(unused_imports)]
-pub use tracing::{debug, trace};
+pub use tracing::{debug, error, trace};
 
 #[cfg(not(feature = "tracing"))]
 #[allow(unused_imports)]
-pub use log::{debug, trace};
+pub use log::{debug, error, trace};
