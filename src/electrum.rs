@@ -8,12 +8,12 @@ use bdk_wallet::{
         FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
     },
 };
+use tracing::*;
 
 use crate::{
     backend::{BackendError, BackendRpc},
     config::ElectrumConfig,
     err_log,
-    logger::*,
 };
 
 pub struct ElectrumRpc {

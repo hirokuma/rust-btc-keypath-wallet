@@ -3,8 +3,9 @@ use std::{fs::File, io::prelude::*, path::PathBuf};
 use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::*;
 
-use crate::{err_log, logger::*};
+use crate::err_log;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {

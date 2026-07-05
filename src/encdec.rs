@@ -15,9 +15,10 @@ use chacha20poly1305::{
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
+use tracing::*;
 use zeroize::Zeroize;
 
-use crate::{err_log, logger::*};
+use crate::err_log;
 
 #[derive(Error, Debug)]
 pub enum EncDecError {

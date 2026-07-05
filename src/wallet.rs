@@ -19,8 +19,9 @@ use bdk_wallet::{
     template::{Bip86, DescriptorTemplate},
 };
 use thiserror::Error;
+use tracing::*;
 
-use crate::{config::Config, logger::*};
+use crate::config::Config;
 
 #[derive(Error, Debug)]
 pub enum WalletError {

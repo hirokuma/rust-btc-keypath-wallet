@@ -1,11 +1,6 @@
 use anyhow::Result;
 use btc_wallet::{self, BtcWallet};
 use clap::{CommandFactory, Parser, Subcommand};
-
-#[cfg(not(feature = "tracing"))]
-use log::*;
-
-#[cfg(feature = "tracing")]
 use tracing::*;
 
 #[derive(Parser)]
@@ -58,20 +53,10 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    #[cfg(not(feature = "tracing"))]
-    {
-        env_logger::builder()
-            .filter(None, log::LevelFilter::Trace)
-            .init();
-        log::info!("bdk_wallet example");
-    }
-    #[cfg(feature = "tracing")]
-    {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::TRACE)
-            .init();
-        tracing::info!("bdk_wallet example");
-    }
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
+    tracing::info!("bdk_wallet example");
 
     let cli = Cli::parse();
 

@@ -2,7 +2,6 @@ mod backend;
 pub mod config;
 mod electrum;
 mod encdec;
-mod logger;
 mod wallet;
 
 pub use bdk_wallet::{
@@ -22,12 +21,12 @@ use bdk_wallet::{
     chain::local_chain::CannotConnectError,
 };
 use std::{fs::File, io::prelude::*, result::Result, str::FromStr, sync::Arc};
+use tracing::*;
 
 use crate::{
     backend::{BackendError, BackendRpc},
     config::{Config, ConfigError},
     encdec::EncDecError,
-    logger::*,
     wallet::{Wallet, WalletError},
 };
 
@@ -35,7 +34,7 @@ use crate::{
 macro_rules! err_log {
     ($err_variant:expr) => {{
         let err = $err_variant;
-        error!("[{}:{}] {}", file!(), line!(), err);
+        error!("{}", err);
         err
     }};
 }
