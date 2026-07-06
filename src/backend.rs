@@ -11,12 +11,46 @@ use bdk_wallet::{
 };
 
 #[derive(Error, Debug)]
+pub enum BackendSourceError {
+    #[error("Electrum: {0}")]
+    Electrum(#[from] electrum_client::Error),
+}
+
+#[derive(Error, Debug)]
 pub enum BackendError {
-    #[error("Electrum client error({source}): {reason}")]
-    Electrum {
+    #[error("new instance({source}): {reason}")]
+    New {
         reason: String,
         #[source]
-        source: electrum_client::Error,
+        source: BackendSourceError,
+    },
+
+    #[error("full scan error({source}): {reason}")]
+    FullScan {
+        reason: String,
+        #[source]
+        source: BackendSourceError,
+    },
+
+    #[error("sync error({source}): {reason}")]
+    Sync {
+        reason: String,
+        #[source]
+        source: BackendSourceError,
+    },
+
+    #[error("get transaction error({source}): {reason}")]
+    GetTx {
+        reason: String,
+        #[source]
+        source: BackendSourceError,
+    },
+
+    #[error("send transaction error({source}): {reason}")]
+    SendTx {
+        reason: String,
+        #[source]
+        source: BackendSourceError,
     },
 }
 

@@ -34,7 +34,7 @@ use crate::{
 macro_rules! err_log {
     ($err_variant:expr) => {{
         let err = $err_variant;
-        error!("{}", err);
+        error!("{err}");
         err
     }};
 }
@@ -47,47 +47,43 @@ pub enum Error {
         source: ConfigError,
     },
 
-    #[error("backend error: {reason}")]
+    #[error("backend: {source}")]
     Backend {
-        reason: &'static str,
         #[source]
         source: BackendError,
     },
 
-    #[error("encrypt/decrypt error: {reason}")]
+    #[error("encrypt/decrypt: {source}")]
     EncDec {
-        reason: &'static str,
         #[source]
         source: EncDecError,
     },
 
-    #[error("connection error: {reason}")]
+    #[error("connection: {source})")]
     CannotConnect {
-        reason: &'static str,
         #[source]
         source: CannotConnectError,
     },
 
-    #[error("wallet operation error: {reason}")]
+    #[error("wallet operation: {source}")]
     Wallet {
-        reason: &'static str,
         #[source]
         source: Box<WalletError>,
     },
 
-    #[error("transaction conversion error: {0}")]
+    #[error("transaction conversion: {0}")]
     TxConvert(#[from] FromHexError),
 
-    #[error("TXID conversion error: {0}")]
+    #[error("TXID conversion: {0}")]
     TxidConvert(#[from] HexToArrayError),
 
-    #[error("address parsing error: {0}")]
+    #[error("address parsing: {0}")]
     Parse(#[from] ParseError),
 
-    #[error("file I/O error: {0}")]
+    #[error("file I/O: {0}")]
     PrivkeyFile(#[from] std::io::Error),
 
-    #[error("BIP32 operation error: {0}")]
+    #[error("BIP32 operation: {0}")]
     Bip32(#[from] bip32::Error),
 
     #[error("callback function failed: {0}")]
@@ -129,23 +125,15 @@ pub fn save_encoded_private_key(
     passphrase: &str,
 ) -> Result<(), Error> {
     let xprv_str = xprv.to_string();
-    encdec::encrypt_to_file(&config.privkey_fname, &xprv_str, passphrase).map_err(|e| {
-        err_log!(Error::EncDec {
-            reason: "save_encoded_private_key",
-            source: e,
-        })
-    })?;
+    encdec::encrypt_to_file(&config.privkey_fname, &xprv_str, passphrase)
+        .map_err(|e| err_log!(Error::EncDec { source: e }))?;
     Ok(())
 }
 
 /// save_encoded_private_key()で保存した拡張秘密鍵ファイルを読み込む
 pub fn load_encoded_private_key(config: &Config, passphrase: &str) -> Result<Xpriv, Error> {
-    let xprv_str = encdec::decrypt_from_file(&config.privkey_fname, passphrase).map_err(|e| {
-        err_log!(Error::EncDec {
-            reason: "load_encoded_private_key",
-            source: e,
-        })
-    })?;
+    let xprv_str = encdec::decrypt_from_file(&config.privkey_fname, passphrase)
+        .map_err(|e| err_log!(Error::EncDec { source: e }))?;
     Ok(Xpriv::from_str(&xprv_str)?)
 }
 
@@ -165,35 +153,22 @@ impl BtcWallet {
         rand::thread_rng().fill_bytes(&mut seed);
         let (mut wallet, xprv) = Wallet::create(&config, &seed).map_err(|e| {
             err_log!(Error::Wallet {
-                reason: "create wallet",
                 source: Box::new(e),
             })
         })?;
         privkey_save_callback(&xprv, &config)?;
 
         let rpc = match config.backend {
-            config::Backend::Electrum => {
-                electrum::ElectrumRpc::new(&config.electrum).map_err(|e| {
-                    err_log!(Error::Backend {
-                        reason: "create wallet",
-                        source: e,
-                    })
-                })?
-            }
+            config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)
+                .map_err(|e| err_log!(Error::Backend { source: e }))?,
         };
         let req = wallet.start_full_scan();
-        let update = rpc.initial_scan(req).map_err(|e| {
-            err_log!(Error::Backend {
-                reason: "create: initial_scan",
-                source: e,
-            })
-        })?;
-        wallet.apply_update(update).map_err(|e| {
-            err_log!(Error::CannotConnect {
-                reason: "apply_update after create wallet",
-                source: e,
-            })
-        })?;
+        let update = rpc
+            .initial_scan(req)
+            .map_err(|e| err_log!(Error::Backend { source: e }))?;
+        wallet
+            .apply_update(update)
+            .map_err(|e| err_log!(Error::CannotConnect { source: e }))?;
 
         debug!("create done");
         Ok(Self {
@@ -211,33 +186,20 @@ impl BtcWallet {
         let xprv = privkey_load_callback(&config)?;
         let mut wallet = Wallet::load(&config, xprv).map_err(|e| {
             err_log!(Error::Wallet {
-                reason: "load wallet",
                 source: Box::new(e),
             })
         })?;
         let rpc = match config.backend {
-            config::Backend::Electrum => {
-                electrum::ElectrumRpc::new(&config.electrum).map_err(|e| {
-                    err_log!(Error::Backend {
-                        reason: "load: ElectrumRpc::new",
-                        source: e,
-                    })
-                })?
-            }
+            config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)
+                .map_err(|e| err_log!(Error::Backend { source: e }))?,
         };
         let req = wallet.start_full_scan();
-        let update = rpc.initial_scan(req).map_err(|e| {
-            err_log!(Error::Backend {
-                reason: "load: initial_scan",
-                source: e,
-            })
-        })?;
-        wallet.apply_update(update).map_err(|e| {
-            err_log!(Error::CannotConnect {
-                reason: "apply_update after load wallet",
-                source: e,
-            })
-        })?;
+        let update = rpc
+            .initial_scan(req)
+            .map_err(|e| err_log!(Error::Backend { source: e }))?;
+        wallet
+            .apply_update(update)
+            .map_err(|e| err_log!(Error::CannotConnect { source: e }))?;
 
         debug!("load done");
         Ok(Self {
@@ -252,18 +214,13 @@ impl BtcWallet {
     /// ウォレット同期
     pub fn sync(&mut self) -> Result<(), Error> {
         let req = self.wallet.start_sync_with_revealed_spks();
-        let update = self.rpc.sync(req).map_err(|e| {
-            err_log!(Error::Backend {
-                reason: "sync",
-                source: e,
-            })
-        })?;
-        self.wallet.apply_update(update).map_err(|e| {
-            err_log!(Error::CannotConnect {
-                reason: "apply_update after sync",
-                source: e,
-            })
-        })
+        let update = self
+            .rpc
+            .sync(req)
+            .map_err(|e| err_log!(Error::Backend { source: e }))?;
+        self.wallet
+            .apply_update(update)
+            .map_err(|e| err_log!(Error::CannotConnect { source: e }))
     }
 
     /// 残高取得
@@ -289,12 +246,9 @@ impl BtcWallet {
 
     /// TXIDに該当するトランザクションを取得する。
     pub fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, Error> {
-        self.rpc.get_tx(txid).map_err(|e| {
-            err_log!(Error::Backend {
-                reason: "get_tx",
-                source: e,
-            })
-        })
+        self.rpc
+            .get_tx(txid)
+            .map_err(|e| err_log!(Error::Backend { source: e }))
     }
 
     pub fn parse_txid_hex(&self, txid_hex: &str) -> Result<Txid, Error> {
@@ -352,19 +306,15 @@ impl BtcWallet {
             .create_tx(addr, amount, fee_rate, sighash_type)
             .map_err(|e| {
                 err_log!(Error::Wallet {
-                    reason: "create_tx_sighash_type",
                     source: Box::new(e),
                 })
             })
     }
 
     pub fn send_tx(&self, tx: &Transaction) -> Result<Txid, Error> {
-        self.rpc.send_tx(tx).map_err(|e| {
-            err_log!(Error::Backend {
-                reason: "send_tx",
-                source: e,
-            })
-        })
+        self.rpc
+            .send_tx(tx)
+            .map_err(|e| err_log!(Error::Backend { source: e }))
     }
 }
 
