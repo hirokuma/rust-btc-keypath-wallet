@@ -9,10 +9,10 @@ use crate::err_log;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("I/O error({source}): {reason}")]
+    #[error("I/O error({source}): {err_info}")]
     File {
         path: PathBuf,
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: std::io::Error,
     },
@@ -71,13 +71,13 @@ impl Config {
         let mut settings = String::new();
         let mut f = File::open(fname).map_err(|e| ConfigError::File {
             path: fname.into(),
-            reason: "open",
+            err_info: "open",
             source: e,
         })?;
         f.read_to_string(&mut settings).map_err(|e| {
             err_log!(ConfigError::File {
                 path: fname.into(),
-                reason: "read_to_string",
+                err_info: "read_to_string",
                 source: e,
             })
         })?;

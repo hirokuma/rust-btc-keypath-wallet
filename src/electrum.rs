@@ -26,7 +26,7 @@ impl ElectrumRpc {
     pub fn new(config: &ElectrumConfig) -> Result<ElectrumRpc, BackendError> {
         let client = electrum_client::Client::new(&config.server).map_err(|e| {
             err_log!(BackendError::New {
-                reason: format!("config.server={}", config.server),
+                err_info: format!("config.server={}", config.server),
                 source: BackendSourceError::Electrum(e),
             })
         })?;
@@ -49,7 +49,7 @@ impl BackendRpc for ElectrumRpc {
             .full_scan(req, self.gap_limit, self.batch_size, false)
             .map_err(|e| {
                 err_log!(BackendError::FullScan {
-                    reason: format!(
+                    err_info: format!(
                         "gap_limit={}, batch_size={}",
                         self.gap_limit, self.batch_size
                     ),
@@ -66,7 +66,7 @@ impl BackendRpc for ElectrumRpc {
     ) -> Result<SyncResponse, BackendError> {
         let update = self.client.sync(req, self.batch_size, false).map_err(|e| {
             err_log!(BackendError::Sync {
-                reason: format!("batch_size={}", self.batch_size),
+                err_info: format!("batch_size={}", self.batch_size),
                 source: BackendSourceError::Electrum(e),
             })
         })?;
@@ -77,7 +77,7 @@ impl BackendRpc for ElectrumRpc {
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError> {
         self.client.fetch_tx(txid).map_err(|e| {
             err_log!(BackendError::GetTx {
-                reason: format!("txid={}", txid),
+                txid,
                 source: BackendSourceError::Electrum(e),
             })
         })
@@ -86,7 +86,8 @@ impl BackendRpc for ElectrumRpc {
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError> {
         self.client.transaction_broadcast(tx).map_err(|e| {
             err_log!(BackendError::SendTx {
-                reason: format!("inputs={}, outputs={}", tx.input.len(), tx.output.len()),
+                inputs: tx.input.len(),
+                outputs: tx.output.len(),
                 source: BackendSourceError::Electrum(e),
             })
         })

@@ -22,47 +22,47 @@ use crate::err_log;
 
 #[derive(Error, Debug)]
 pub enum EncDecError {
-    #[error("I/O error({source}: {path}): {reason}")]
+    #[error("I/O error({source}: {path}): {err_info}")]
     Io {
         path: PathBuf,
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("convert UTF8 error({source}): {reason}")]
+    #[error("convert UTF8 error({source}): {err_info}")]
     ConvUtf8 {
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: FromUtf8Error,
     },
 
-    #[error("wincode write error({source}): {reason}")]
+    #[error("wincode write error({source}): {err_info}")]
     WinCodeWrite {
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: wincode::WriteError,
     },
 
-    #[error("wincode read error({source}): {reason}")]
+    #[error("wincode read error({source}): {err_info}")]
     WinCodeRead {
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: wincode::ReadError,
     },
 
-    #[error("Argon2 error({err}): {reason}")]
+    #[error("Argon2 error({err}): {err_info}")]
     Argon2 {
-        reason: &'static str,
+        err_info: &'static str,
         err: argon2::Error,
     },
 
-    #[error("crypto invalid length error: {reason}")]
-    CryptoInvalidLen { reason: &'static str },
+    #[error("crypto invalid length error: {err_info}")]
+    CryptoInvalidLen { err_info: &'static str },
 
-    #[error("ChaCha20Poly1305 error({err}): {reason}")]
+    #[error("ChaCha20Poly1305 error({err}): {err_info}")]
     ChaCha {
-        reason: &'static str,
+        err_info: &'static str,
         err: chacha20poly1305::aead::Error,
     },
 
@@ -113,13 +113,13 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
 
     let mut derived_key = derive_key(passphrase.as_bytes(), &salt_bytes).map_err(|e| {
         err_log!(EncDecError::Argon2 {
-            reason: "failed to hash password on encrypt",
+            err_info: "failed to hash password on encrypt",
             err: e,
         })
     })?;
     let cipher = XChaCha20Poly1305::new_from_slice(&derived_key).map_err(|_e| {
         err_log!(EncDecError::CryptoInvalidLen {
-            reason: "new_from_slice on encrypt",
+            err_info: "new_from_slice on encrypt",
         })
     })?;
     let payload = Payload {
@@ -130,7 +130,7 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
         .encrypt(XNonce::from_slice(&nonce_bytes), payload)
         .map_err(|e| {
             err_log!(EncDecError::ChaCha {
-                reason: "encrypt",
+                err_info: "encrypt",
                 err: e,
             })
         })?;
@@ -164,7 +164,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     let mut file = File::open(path).map_err(|e| {
         err_log!(EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "open decrypt file",
+            err_info: "open decrypt file",
             source: e,
         })
     })?;
@@ -172,7 +172,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     file.read_to_end(&mut file_content).map_err(|e| {
         err_log!(EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "read decrypt file",
+            err_info: "read decrypt file",
             source: e,
         })
     })?;
@@ -194,13 +194,13 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
 
     let mut derived_key = derive_key(passphrase.as_bytes(), dec_data.salt_bytes).map_err(|e| {
         err_log!(EncDecError::Argon2 {
-            reason: "failed to hash password on decrypt",
+            err_info: "failed to hash password on decrypt",
             err: e,
         })
     })?;
     let cipher = XChaCha20Poly1305::new_from_slice(&derived_key).map_err(|_e| {
         err_log!(EncDecError::CryptoInvalidLen {
-            reason: "new_from_slice on decrypt",
+            err_info: "new_from_slice on decrypt",
         })
     })?;
 
@@ -210,12 +210,17 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     };
     let decrypted_bytes = cipher
         .decrypt(XNonce::from_slice(dec_data.nonce_bytes), payload)
-        .map_err(|e| err_log!(EncDecError::ChaCha { reason: "", err: e }))?;
+        .map_err(|e| {
+            err_log!(EncDecError::ChaCha {
+                err_info: "decryrpt nonce_bytes",
+                err: e
+            })
+        })?;
     derived_key.zeroize();
 
     let decrypted_string = String::from_utf8(decrypted_bytes).map_err(|e| {
         err_log!(EncDecError::ConvUtf8 {
-            reason: "decrypted bytes",
+            err_info: "decrypted bytes",
             source: e,
         })
     })?;
@@ -246,13 +251,13 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     let mut file = NamedTempFile::new_in(target_dir).map_err(|e| {
         err_log!(EncDecError::Io {
             path: target_dir.to_path_buf(),
-            reason: "create temporary file",
+            err_info: "create temporary file",
             source: e,
         })
     })?;
     let enc = wincode::serialize(enc_data).map_err(|e| {
         err_log!(EncDecError::WinCodeWrite {
-            reason: "serialize format v1",
+            err_info: "serialize format v1",
             source: e,
         })
     })?;
@@ -260,21 +265,21 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     file.write_all(&version_bytes).map_err(|e| {
         err_log!(EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "write version",
+            err_info: "write version",
             source: e,
         })
     })?;
     file.write_all(&enc).map_err(|e| {
         err_log!(EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "write format v1",
+            err_info: "write format v1",
             source: e,
         })
     })?;
     file.persist(path).map_err(|e| {
         err_log!(EncDecError::Io {
             path: path.to_path_buf(),
-            reason: "temporary to real",
+            err_info: "temporary file to real",
             source: e.error,
         })
     })?;
@@ -285,7 +290,7 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
 fn read_file_v1<'a>(file_content: &'a [u8]) -> Result<FormatV1<'a>, EncDecError> {
     let dec: FormatV1 = wincode::deserialize(file_content).map_err(|e| {
         err_log!(EncDecError::WinCodeRead {
-            reason: "deserilize format v1",
+            err_info: "deserilize format v1",
             source: e,
         })
     })?;

@@ -25,31 +25,31 @@ use crate::config::Config;
 
 #[derive(Error, Debug)]
 pub enum WalletError {
-    #[error("create wallet error({source}: {path})")]
+    #[error("create wallet error({source}): path={path}")]
     CreateWallet {
         path: PathBuf,
         #[source]
         source: CreateWithPersistError<rusqlite::Error>,
     },
 
-    #[error("load wallet error({source}: {path})")]
+    #[error("load wallet error({source}): path={path})")]
     LoadWallet {
         path: PathBuf,
         #[source]
         source: LoadWithPersistError<rusqlite::Error>,
     },
 
-    #[error("open wallet error({source}: {path}): {reason}")]
+    #[error("open wallet error({source}): path={path}: {err_info}")]
     OpenWallet {
         path: PathBuf,
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: rusqlite::Error,
     },
 
-    #[error("generate descriptor error({source}): {reason}")]
+    #[error("generate descriptor error({source}): {err_info}")]
     Descriptor {
-        reason: &'static str,
+        err_info: &'static str,
         #[source]
         source: DescriptorError,
     },
@@ -117,13 +117,13 @@ impl Wallet {
             Bip86(xprv, KeychainKind::External)
                 .build(kind)
                 .map_err(|e| WalletError::Descriptor {
-                    reason: "create external key",
+                    err_info: "create external key",
                     source: e,
                 })?;
         let (change_descriptor, change_key_map, _) = Bip86(xprv, KeychainKind::Internal)
             .build(kind)
             .map_err(|e| WalletError::Descriptor {
-                reason: "create internal key",
+                err_info: "create internal key",
                 source: e,
             })?;
         let mut conn = Connection::open_with_flags(
@@ -132,7 +132,7 @@ impl Wallet {
         )
         .map_err(|e| WalletError::OpenWallet {
             path: config.wallet_fname.clone(),
-            reason: "create wallet",
+            err_info: "create wallet",
             source: e,
         })?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
@@ -156,7 +156,7 @@ impl Wallet {
             Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)
                 .map_err(|e| WalletError::OpenWallet {
                     path: config.wallet_fname.clone(),
-                    reason: "load wallet",
+                    err_info: "load wallet",
                     source: e,
                 })?;
         let kind = NetworkKind::from(config.network);
@@ -164,13 +164,13 @@ impl Wallet {
             Bip86(xprv, KeychainKind::External)
                 .build(kind)
                 .map_err(|e| WalletError::Descriptor {
-                    reason: "load external key",
+                    err_info: "load external key",
                     source: e,
                 })?;
         let (change_descriptor, change_key_map, _) = Bip86(xprv, KeychainKind::Internal)
             .build(kind)
             .map_err(|e| WalletError::Descriptor {
-                reason: "load internal key",
+                err_info: "load internal key",
                 source: e,
             })?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
@@ -189,7 +189,7 @@ impl Wallet {
         let wallet = match wallet_opt {
             Some(wallet) => wallet,
             None => {
-                return Err(WalletError::WalletFile("Wallet::load result is None"));
+                return Err(WalletError::WalletFile("load result is none"));
             }
         };
         Ok(Wallet { wallet, conn })

@@ -18,37 +18,38 @@ pub enum BackendSourceError {
 
 #[derive(Error, Debug)]
 pub enum BackendError {
-    #[error("new instance({source}): {reason}")]
+    #[error("new instance({source}): {err_info}")]
     New {
-        reason: String,
+        err_info: String,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("full scan error({source}): {reason}")]
+    #[error("full scan error({source}): {err_info}")]
     FullScan {
-        reason: String,
+        err_info: String,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("sync error({source}): {reason}")]
+    #[error("sync error({source}): {err_info}")]
     Sync {
-        reason: String,
+        err_info: String,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("get transaction error({source}): {reason}")]
+    #[error("get transaction error({source}): txid={txid}")]
     GetTx {
-        reason: String,
+        txid: Txid,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("send transaction error({source}): {reason}")]
+    #[error("send transaction error({source}): inputs={inputs}, outputs={outputs}")]
     SendTx {
-        reason: String,
+        inputs: usize,
+        outputs: usize,
         #[source]
         source: BackendSourceError,
     },
