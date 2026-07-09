@@ -60,6 +60,12 @@ pub enum EncDecError {
     #[error("crypto invalid length error: {err_info}")]
     CryptoInvalidLen { err_info: &'static str },
 
+    #[error("nonce convert error({err}): {err_info}")]
+    ConvNonce {
+        err_info: &'static str,
+        err: core::array::TryFromSliceError,
+    },
+
     #[error("ChaCha20Poly1305 error({err}): {err_info}")]
     ChaCha {
         err_info: &'static str,
@@ -127,7 +133,7 @@ pub fn encrypt_to_file(path: &Path, data: &str, passphrase: &str) -> Result<(), 
         aad: AAD_V1,
     };
     let ciphertext = cipher
-        .encrypt(XNonce::from_slice(&nonce_bytes), payload)
+        .encrypt(<&XNonce>::from(&nonce_bytes), payload)
         .map_err(|e| {
             err_log!(EncDecError::ChaCha {
                 err_info: "encrypt",
@@ -208,14 +214,18 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
         msg: dec_data.ciphertext,
         aad: AAD_V1,
     };
-    let decrypted_bytes = cipher
-        .decrypt(XNonce::from_slice(dec_data.nonce_bytes), payload)
-        .map_err(|e| {
-            err_log!(EncDecError::ChaCha {
-                err_info: "decryrpt nonce_bytes",
-                err: e
-            })
-        })?;
+    let nonce = XNonce::try_from(dec_data.nonce_bytes).map_err(|e| {
+        err_log!(EncDecError::ConvNonce {
+            err_info: "dec_data.nonce_bytes",
+            err: e,
+        })
+    })?;
+    let decrypted_bytes = cipher.decrypt(&nonce, payload).map_err(|e| {
+        err_log!(EncDecError::ChaCha {
+            err_info: "decryrpt nonce_bytes",
+            err: e
+        })
+    })?;
     derived_key.zeroize();
 
     let decrypted_string = String::from_utf8(decrypted_bytes).map_err(|e| {
