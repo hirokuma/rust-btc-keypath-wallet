@@ -468,7 +468,8 @@ mod tests {
         {
             let load_callback =
                 |_config: &Config| -> Result<Xpriv, Error> { Ok(saved_privkey.unwrap()) };
-            let _ = BtcWallet::load(config.clone(), load_callback).unwrap();
+            let result = BtcWallet::load(config.clone(), load_callback);
+            assert!(result.is_err()); // save_callbackでファイル保存していないのでエラーになる
         }
     }
 
