@@ -30,21 +30,21 @@ pub enum EncDecError {
         source: std::io::Error,
     },
 
-    #[error("convert UTF8 error({source}): {err_info}")]
+    #[error("convert UTF8 error: {err_info}: {source}")]
     ConvUtf8 {
         err_info: &'static str,
         #[source]
         source: FromUtf8Error,
     },
 
-    #[error("wincode write error({source}): {err_info}")]
+    #[error("wincode write error: {err_info}: {source}")]
     WinCodeWrite {
         err_info: &'static str,
         #[source]
         source: wincode::WriteError,
     },
 
-    #[error("wincode read error({source}): {err_info}")]
+    #[error("wincode read error: {err_info}: {source}")]
     WinCodeRead {
         err_info: &'static str,
         #[source]

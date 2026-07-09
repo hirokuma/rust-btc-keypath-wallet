@@ -13,7 +13,7 @@ use crate::err_log;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("I/O error({source}): {err_info}")]
+    #[error("I/O error: {err_info}: {source}")]
     File {
         path: PathBuf,
         err_info: &'static str,
@@ -21,7 +21,7 @@ pub enum ConfigError {
         source: std::io::Error,
     },
 
-    #[error("TOML parsing error({source})")]
+    #[error("TOML parsing error: {source}")]
     Toml {
         #[source]
         source: toml::de::Error,

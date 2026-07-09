@@ -25,21 +25,21 @@ use crate::config::Config;
 
 #[derive(Error, Debug)]
 pub enum WalletError {
-    #[error("create wallet error({source}): path={path}")]
+    #[error("create wallet error: path={path}: {source}")]
     CreateWallet {
         path: PathBuf,
         #[source]
         source: CreateWithPersistError<rusqlite::Error>,
     },
 
-    #[error("load wallet error({source}): path={path})")]
+    #[error("load wallet error: path={path}): {source}")]
     LoadWallet {
         path: PathBuf,
         #[source]
         source: LoadWithPersistError<rusqlite::Error>,
     },
 
-    #[error("open wallet error({source}): path={path}: {err_info}")]
+    #[error("open wallet error: path={path}: {err_info}: {source}")]
     OpenWallet {
         path: PathBuf,
         err_info: &'static str,
@@ -47,32 +47,32 @@ pub enum WalletError {
         source: rusqlite::Error,
     },
 
-    #[error("generate descriptor error({source}): {err_info}")]
+    #[error("generate descriptor error: {err_info}: {source}")]
     Descriptor {
         err_info: &'static str,
         #[source]
         source: DescriptorError,
     },
 
-    #[error("BIP32 error({source})")]
+    #[error("BIP32 error: {source}")]
     Bip32 {
         #[source]
         source: bip32::Error,
     },
 
-    #[error("create transaction error({source})")]
+    #[error("create transaction error: {source}")]
     CreateTx {
         #[source]
         source: CreateTxError,
     },
 
-    #[error("extract transaction error({source})")]
+    #[error("extract transaction error: {source}")]
     ExtractTx {
         #[source]
         source: Box<ExtractTxError>,
     },
 
-    #[error("signer error({source})")]
+    #[error("signer error: {source}")]
     Signer {
         #[source]
         source: SignerError,
