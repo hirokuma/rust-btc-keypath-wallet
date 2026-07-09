@@ -20,7 +20,7 @@ use bdk_wallet::{
     },
     chain::local_chain::CannotConnectError,
 };
-use std::{fs::File, io::prelude::*, result::Result, str::FromStr, sync::Arc};
+use std::{result::Result, str::FromStr, sync::Arc};
 use tracing::*;
 
 use crate::{
@@ -71,8 +71,9 @@ pub enum Error {
         source: Box<WalletError>,
     },
 
-    #[error("transaction conversion: {source}")]
+    #[error("transaction conversion: {source}: tx_hex={tx_hex}")]
     TxConvert {
+        tx_hex: String,
         #[source]
         source: FromHexError,
     },
@@ -89,50 +90,18 @@ pub enum Error {
         source: ParseError,
     },
 
-    #[error("private key file: {source}")]
-    PrivkeyFile {
-        #[source]
-        source: std::io::Error,
-    },
-
     #[error("BIP32 operation: {source}")]
     Bip32 {
         #[source]
         source: bip32::Error,
     },
 
-    #[error("callback function failed: {0}")]
-    Callback(String),
+    #[error("fail access private key file: {reason}")]
+    Privkey { reason: String },
 }
 
 pub fn load_config(config_fname: &str) -> Result<Config, Error> {
     Config::new(config_fname).map_err(|e| err_log!(Error::Config { source: e }))
-}
-
-/// 拡張秘密鍵をテキスト形式でファイル保存する(DANGER)
-pub fn save_text_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
-    let xprv_str = xprv.to_string();
-    let mut f =
-        File::create(&config.privkey_fname).map_err(|e| Error::PrivkeyFile { source: e })?;
-    writeln!(f, "{}", xprv_str).map_err(|e| Error::PrivkeyFile { source: e })?;
-    Ok(())
-}
-
-/// save_text_private_key()で保存した拡張秘密鍵ファイルを読み込む
-pub fn load_text_private_key(config: &Config) -> Result<Xpriv, Error> {
-    let mut xprv = String::new();
-    let mut f = File::open(&config.privkey_fname).map_err(|e| Error::PrivkeyFile { source: e })?;
-    f.read_to_string(&mut xprv)
-        .map_err(|e| Error::PrivkeyFile { source: e })?;
-    if let Some(first_line) = xprv.lines().next() {
-        let xprv_str = first_line.to_string();
-        Ok(Xpriv::from_str(&xprv_str).map_err(|e| Error::Bip32 { source: e })?)
-    } else {
-        Err(err_log!(Error::Callback(format!(
-            "fail load privkey text file: {}",
-            config.privkey_fname.to_string_lossy()
-        ))))
-    }
 }
 
 /// 拡張秘密鍵をChaCha20Poly1305でファイル保存する
@@ -277,7 +246,10 @@ impl BtcWallet {
     }
 
     pub fn parse_tx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {
-        deserialize_hex(tx_hex).map_err(|e| Error::TxConvert { source: e })
+        deserialize_hex(tx_hex).map_err(move |e| Error::TxConvert {
+            tx_hex: tx_hex.to_string(),
+            source: e,
+        })
     }
 
     pub fn to_tx_hex(&self, tx: &Transaction) -> String {
@@ -342,7 +314,39 @@ impl BtcWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs::File, io::prelude::*, result::Result, str::FromStr};
     use tempfile::tempdir;
+
+    /// 拡張秘密鍵をテキスト形式でファイル保存する(DANGER)
+    fn save_text_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
+        let xprv_str = xprv.to_string();
+        let mut f = File::create(&config.privkey_fname).map_err(|e| Error::Privkey {
+            reason: format!("File::create: {e}"),
+        })?;
+        writeln!(f, "{}", xprv_str).map_err(|e| Error::Privkey {
+            reason: format!("writeln!: {e}"),
+        })?;
+        Ok(())
+    }
+
+    /// save_text_private_key()で保存した拡張秘密鍵ファイルを読み込む
+    fn load_text_private_key(config: &Config) -> Result<Xpriv, Error> {
+        let mut xprv = String::new();
+        let mut f = File::open(&config.privkey_fname).map_err(|e| Error::Privkey {
+            reason: format!("File::open: {e}"),
+        })?;
+        f.read_to_string(&mut xprv).map_err(|e| Error::Privkey {
+            reason: format!("read_to_string: {e}"),
+        })?;
+        if let Some(first_line) = xprv.lines().next() {
+            let xprv_str = first_line.to_string();
+            Ok(Xpriv::from_str(&xprv_str).map_err(|e| Error::Bip32 { source: e })?)
+        } else {
+            Err(err_log!(Error::Privkey {
+                reason: "linex().next()".to_string(),
+            }))
+        }
+    }
 
     #[test]
     fn test_create_load() {

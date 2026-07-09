@@ -1,5 +1,5 @@
 use anyhow::Result;
-use btc_wallet::{self, BtcWallet};
+use btc_wallet::{self, BtcWallet, config::Config};
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing::*;
 
@@ -62,6 +62,11 @@ fn main() -> Result<()> {
 
     let config =
         btc_wallet::load_config("./config.toml").inspect_err(|e| error!("load_config: {e}"))?;
+    let passphrase = "SuperSecurePassword123!";
+    let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
+        btc_wallet::save_encoded_private_key(xprv, config, passphrase)
+    };
+    let load_privkey = |config: &Config| btc_wallet::load_encoded_private_key(config, passphrase);
 
     match cli.command {
         None => {
@@ -70,13 +75,13 @@ fn main() -> Result<()> {
             println!();
         }
         Some(Commands::Create) => {
-            let wallet = BtcWallet::create(config, btc_wallet::save_text_private_key)
-                .inspect_err(|e| error!("create: {e}"))?;
+            let wallet =
+                BtcWallet::create(config, save_privkey).inspect_err(|e| error!("create: {e}"))?;
             println!("wallet created: {}", wallet.config.network);
         }
         Some(Commands::Balance) => {
-            let wallet = BtcWallet::load(config, btc_wallet::load_text_private_key)
-                .inspect_err(|e| error!("load: {e}"))?;
+            let wallet =
+                BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
             let balance = wallet.balance();
             println!("balance: {}", balance);
         }
@@ -84,14 +89,14 @@ fn main() -> Result<()> {
             todo!();
         }
         Some(Commands::NewAddr) => {
-            let mut wallet = BtcWallet::load(config, btc_wallet::load_text_private_key)
-                .inspect_err(|e| error!("load: {e}"))?;
+            let mut wallet =
+                BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
             let new_addr = wallet.new_address();
             println!("new address: {}", new_addr);
         }
         Some(Commands::Tx { tx_hex }) => {
-            let wallet = BtcWallet::load(config, btc_wallet::load_text_private_key)
-                .inspect_err(|e| error!("load: {e}"))?;
+            let wallet =
+                BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
             let tx = wallet
                 .parse_tx_hex(&tx_hex)
                 .inspect_err(|e| error!("to_hex: {e}"))?;
@@ -102,8 +107,8 @@ fn main() -> Result<()> {
             amount,
             fee_rate,
         }) => {
-            let mut wallet = BtcWallet::load(config, btc_wallet::load_text_private_key)
-                .inspect_err(|e| error!("load: {e}"))?;
+            let mut wallet =
+                BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
             let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
                 .create_tx(&out_addr, amount, fee_rate)
@@ -116,8 +121,8 @@ fn main() -> Result<()> {
             amount,
             fee_rate,
         }) => {
-            let mut wallet = BtcWallet::load(config, btc_wallet::load_text_private_key)
-                .inspect_err(|e| error!("load: {e}"))?;
+            let mut wallet =
+                BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
             let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
                 .create_tx_single_anypay(&out_addr, amount, fee_rate)
@@ -126,8 +131,8 @@ fn main() -> Result<()> {
             println!("raw_tx: {}", wallet.to_tx_hex(&tx));
         }
         Some(Commands::SendRawTx { tx_hex }) => {
-            let wallet = BtcWallet::load(config, btc_wallet::load_text_private_key)
-                .inspect_err(|e| error!("load: {e}"))?;
+            let wallet =
+                BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
             let tx = wallet
                 .parse_tx_hex(&tx_hex)
                 .inspect_err(|e| error!("to_hex: {e}"))?;
