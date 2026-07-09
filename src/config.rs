@@ -1,4 +1,8 @@
-use std::{fs::File, io::prelude::*, path::PathBuf};
+use std::{
+    fs::File,
+    io::prelude::*,
+    path::{Path, PathBuf},
+};
 
 use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
@@ -71,7 +75,7 @@ pub struct ElectrumConfig {
 }
 
 impl Config {
-    pub fn new(fname: &str) -> Result<Config, ConfigError> {
+    pub fn new(fname: &Path) -> Result<Config, ConfigError> {
         let mut settings = String::new();
         let mut f = File::open(fname).map_err(|e| {
             err_log!(ConfigError::File {

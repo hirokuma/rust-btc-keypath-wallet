@@ -100,7 +100,7 @@ pub enum Error {
     Privkey(String),
 }
 
-pub fn load_config(config_fname: &str) -> Result<Config, Error> {
+pub fn load_config(config_fname: &Path) -> Result<Config, Error> {
     Config::new(config_fname).map_err(|e| err_log!(Error::Config { source: e }))
 }
 

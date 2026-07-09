@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use btc_wallet::{self, BtcWallet, config::Config};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -60,8 +62,8 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    let config =
-        btc_wallet::load_config("./config.toml").inspect_err(|e| error!("load_config: {e}"))?;
+    let config = btc_wallet::load_config(Path::new("./config.toml"))
+        .inspect_err(|e| error!("load_config: {e}"))?;
     let passphrase = "SuperSecurePassword123!";
     let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
         btc_wallet::save_encoded_private_key(xprv, config, passphrase)
