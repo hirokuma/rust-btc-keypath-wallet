@@ -38,12 +38,16 @@ pub enum Backend {
 pub struct Config {
     /// BDK Wallet filename
     pub wallet_fname: PathBuf,
-    /// Private key text filename (optional)
+
+    /// Private key filename
     pub privkey_fname: PathBuf,
+
     /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
+
     /// Backend type
     pub backend: Backend,
+
     /// Electrum backend config
     pub electrum: ElectrumConfig,
 }
@@ -69,10 +73,12 @@ pub struct ElectrumConfig {
 impl Config {
     pub fn new(fname: &str) -> Result<Config, ConfigError> {
         let mut settings = String::new();
-        let mut f = File::open(fname).map_err(|e| ConfigError::File {
-            path: fname.into(),
-            err_info: "open",
-            source: e,
+        let mut f = File::open(fname).map_err(|e| {
+            err_log!(ConfigError::File {
+                path: fname.into(),
+                err_info: "open",
+                source: e,
+            })
         })?;
         f.read_to_string(&mut settings).map_err(|e| {
             err_log!(ConfigError::File {
