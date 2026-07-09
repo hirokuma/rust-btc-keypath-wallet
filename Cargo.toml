@@ -1,34 +1,24 @@
 [package]
-name = "btc_wallet"
-version = "0.0.1"
 edition = "2024"
 license = "MIT"
-
-[features]
-default = ["log"]
-log = []
-tracing = []
+name = "btc_wallet"
+version = "0.0.1"
 
 [dependencies]
-bdk_wallet = { version = "3.1.0", features = ["rusqlite"] }
+argon2 = {version = "0.5.3", features = ["password-hash"]}
 bdk_electrum = "0.24.0"
-
-log = "0.4.32"
-serde = { version = "1.0.228", features = ["derive"] }
+bdk_wallet = {version = "3.1.0", features = ["rusqlite"]}
+chacha20poly1305 = "0.11.0"
+serde = {version = "1.0.228", features = ["derive"]}
+tempfile = "3.27.0"
 thiserror = "2.0.18"
 toml = "1.1.2"
 tracing = "0.1.44"
-argon2 = { version = "0.5.3", features = ["password-hash"] }
-chacha20poly1305 = "0.10.1"
+wincode = {version = "0.5.5", features = ["derive"]}
 zeroize = "1.9.0"
-tempfile = "3.27.0"
-wincode = { version = "0.5.5", features = ["derive"] }
 
 [dev-dependencies]
-anyhow = "1.0.102"
-clap = { version = "4.6.1", features = ["derive"] }
-env_logger = "0.11.10"
+anyhow = "1.0.103"
+clap = {version = "4.6.1", features = ["derive"]}
 hex = "0.4.3"
-tempfile = "3.27.0"
-tracing-log = "0.2.0"
-tracing-subscriber = "0.3.23"
+tracing-subscriber = {version = "0.3.23", features = ["env-filter"]}

@@ -6,10 +6,17 @@ use std::{
     path::Path,
 };
 use tracing::*;
+use tracing_subscriber::{EnvFilter, prelude::*};
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+    let filter = EnvFilter::builder().parse_lossy("warn,btc_wallet=off");
+    tracing_subscriber::Registry::default()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_file(true)
+                .with_line_number(true)
+                .with_filter(filter),
+        )
         .init();
 
     let config = Config {
@@ -41,7 +48,7 @@ fn main() -> Result<()> {
             BtcWallet::create(config, save_privkey)
         }
     }
-    .inspect_err(|e| error!("wallet: {e}"))?;
+    .inspect_err(|e| error!("Fail wallet instance creation: {e}"))?;
     debug!("wallet created/loaded: {}", wallet.config.network);
 
     let addr1 = wallet.new_address();

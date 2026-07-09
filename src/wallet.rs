@@ -1,4 +1,4 @@
-use std::result::Result;
+use std::{path::PathBuf, result::Result};
 
 use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
@@ -19,36 +19,66 @@ use bdk_wallet::{
     template::{Bip86, DescriptorTemplate},
 };
 use thiserror::Error;
+use tracing::*;
 
-use crate::{config::Config, logger::*};
+use crate::config::Config;
 
 #[derive(Error, Debug)]
 pub enum WalletError {
-    #[error(transparent)]
-    CreateWallet(#[from] CreateWithPersistError<bdk_wallet::rusqlite::Error>),
+    #[error("create wallet error({source}): path={path}")]
+    CreateWallet {
+        path: PathBuf,
+        #[source]
+        source: CreateWithPersistError<rusqlite::Error>,
+    },
 
-    #[error(transparent)]
-    LoadWallet(#[from] LoadWithPersistError<bdk_wallet::rusqlite::Error>),
+    #[error("load wallet error({source}): path={path})")]
+    LoadWallet {
+        path: PathBuf,
+        #[source]
+        source: LoadWithPersistError<rusqlite::Error>,
+    },
 
-    #[error(transparent)]
-    OpenWallet(#[from] rusqlite::Error),
+    #[error("open wallet error({source}): path={path}: {err_info}")]
+    OpenWallet {
+        path: PathBuf,
+        err_info: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
 
-    #[error(transparent)]
-    Descriptor(#[from] DescriptorError),
+    #[error("generate descriptor error({source}): {err_info}")]
+    Descriptor {
+        err_info: &'static str,
+        #[source]
+        source: DescriptorError,
+    },
 
-    #[error(transparent)]
-    Bip32(#[from] bip32::Error),
+    #[error("BIP32 error({source})")]
+    Bip32 {
+        #[source]
+        source: bip32::Error,
+    },
 
-    #[error(transparent)]
-    CreateTx(#[from] CreateTxError),
+    #[error("create transaction error({source})")]
+    CreateTx {
+        #[source]
+        source: CreateTxError,
+    },
 
-    #[error(transparent)]
-    ExtractTx(#[from] Box<ExtractTxError>),
+    #[error("extract transaction error({source})")]
+    ExtractTx {
+        #[source]
+        source: Box<ExtractTxError>,
+    },
 
-    #[error(transparent)]
-    Signer(#[from] SignerError),
+    #[error("signer error({source})")]
+    Signer {
+        #[source]
+        source: SignerError,
+    },
 
-    #[error("signed but not finalized")]
+    #[error("transaction is not finalized")]
     TxFinalize,
 
     #[error("wallet file error: {0}")]
@@ -81,21 +111,39 @@ impl Wallet {
 impl Wallet {
     pub fn create(config: &Config, seed: &[u8; 32]) -> Result<(Self, Xpriv), WalletError> {
         let kind = NetworkKind::from(config.network);
-        let xprv: Xpriv = Xpriv::new_master(config.network, seed)?;
-        let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
-        let (change_descriptor, change_key_map, _) =
-            Bip86(xprv, KeychainKind::Internal).build(kind)?;
+        let xprv: Xpriv = Xpriv::new_master(config.network, seed)
+            .map_err(|e| WalletError::Bip32 { source: e })?;
+        let (descriptor, key_map, _) =
+            Bip86(xprv, KeychainKind::External)
+                .build(kind)
+                .map_err(|e| WalletError::Descriptor {
+                    err_info: "create external key",
+                    source: e,
+                })?;
+        let (change_descriptor, change_key_map, _) = Bip86(xprv, KeychainKind::Internal)
+            .build(kind)
+            .map_err(|e| WalletError::Descriptor {
+                err_info: "create internal key",
+                source: e,
+            })?;
         let mut conn = Connection::open_with_flags(
             &config.wallet_fname,
             OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
         )
-        .inspect_err(|e| trace!("{e}"))?;
+        .map_err(|e| WalletError::OpenWallet {
+            path: config.wallet_fname.clone(),
+            err_info: "create wallet",
+            source: e,
+        })?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
         let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
         let wallet = BdkWallet::create(external_descriptor_priv, internal_descriptor_priv)
             .network(config.network)
             .create_wallet(&mut conn)
-            .inspect_err(|e| trace!("{e}"))?;
+            .map_err(|e| WalletError::CreateWallet {
+                path: config.wallet_fname.clone(),
+                source: e,
+            })?;
 
         Ok((Wallet { wallet, conn }, xprv))
     }
@@ -105,11 +153,26 @@ impl Wallet {
             return Err(WalletError::WalletFile("wallet file not exists"));
         }
         let mut conn =
-            Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+            Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .map_err(|e| WalletError::OpenWallet {
+                    path: config.wallet_fname.clone(),
+                    err_info: "load wallet",
+                    source: e,
+                })?;
         let kind = NetworkKind::from(config.network);
-        let (descriptor, key_map, _) = Bip86(xprv, KeychainKind::External).build(kind)?;
-        let (change_descriptor, change_key_map, _) =
-            Bip86(xprv, KeychainKind::Internal).build(kind)?;
+        let (descriptor, key_map, _) =
+            Bip86(xprv, KeychainKind::External)
+                .build(kind)
+                .map_err(|e| WalletError::Descriptor {
+                    err_info: "load external key",
+                    source: e,
+                })?;
+        let (change_descriptor, change_key_map, _) = Bip86(xprv, KeychainKind::Internal)
+            .build(kind)
+            .map_err(|e| WalletError::Descriptor {
+                err_info: "load internal key",
+                source: e,
+            })?;
         let external_descriptor_priv = descriptor.to_string_with_secret(&key_map);
         let internal_descriptor_priv = change_descriptor.to_string_with_secret(&change_key_map);
 
@@ -118,11 +181,15 @@ impl Wallet {
             .descriptor(KeychainKind::Internal, Some(internal_descriptor_priv))
             .extract_keys()
             .check_network(config.network)
-            .load_wallet(&mut conn)?;
+            .load_wallet(&mut conn)
+            .map_err(|e| WalletError::LoadWallet {
+                path: config.wallet_fname.clone(),
+                source: e,
+            })?;
         let wallet = match wallet_opt {
             Some(wallet) => wallet,
             None => {
-                return Err(WalletError::WalletFile("Wallet::load result is None"));
+                return Err(WalletError::WalletFile("load result is none"));
             }
         };
         Ok(Wallet { wallet, conn })
@@ -173,19 +240,27 @@ impl Wallet {
             builder.sighash(sig_hash_type.into());
         }
         builder.fee_rate(fee_rate);
-        let mut psbt = builder.finish()?;
-        let finalized = self.wallet.sign(
-            &mut psbt,
-            SignOptions {
-                trust_witness_utxo: true,
-                allow_all_sighashes,
-                ..Default::default()
-            },
-        )?;
+        let mut psbt = builder
+            .finish()
+            .map_err(|e| WalletError::CreateTx { source: e })?;
+        let finalized = self
+            .wallet
+            .sign(
+                &mut psbt,
+                SignOptions {
+                    trust_witness_utxo: true,
+                    allow_all_sighashes,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| WalletError::Signer { source: e })?;
         if !finalized {
             return Err(WalletError::TxFinalize);
         }
-        let tx = psbt.extract_tx().map_err(Box::new)?;
+        let tx = psbt
+            .extract_tx()
+            .map_err(Box::new)
+            .map_err(|e| WalletError::ExtractTx { source: e })?;
         Ok(tx)
     }
 }
