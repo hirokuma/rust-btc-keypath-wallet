@@ -20,7 +20,7 @@ use bdk_wallet::{
     },
     chain::local_chain::CannotConnectError,
 };
-use std::{result::Result, str::FromStr, sync::Arc};
+use std::{path::Path, result::Result, str::FromStr, sync::Arc};
 use tracing::*;
 
 use crate::{
@@ -96,8 +96,8 @@ pub enum Error {
         source: bip32::Error,
     },
 
-    #[error("fail access private key file: {reason}")]
-    Privkey { reason: String },
+    #[error("fail access private key file: {0}")]
+    Privkey(String),
 }
 
 pub fn load_config(config_fname: &str) -> Result<Config, Error> {
@@ -135,6 +135,19 @@ impl BtcWallet {
         config: Config,
         mut privkey_save_callback: impl FnMut(&Xpriv, &Config) -> Result<(), Error>,
     ) -> Result<Self, Error> {
+        if Path::new(&config.privkey_fname).exists() {
+            return Err(err_log!(Error::Privkey(format!(
+                "private key file already exist: {}",
+                config.privkey_fname.to_string_lossy()
+            ))));
+        }
+        if Path::new(&config.wallet_fname).exists() {
+            return Err(err_log!(Error::Privkey(format!(
+                "wallet key file already exist: {}",
+                config.wallet_fname.to_string_lossy()
+            ))));
+        }
+
         let mut seed: [u8; 32] = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut seed);
         let (mut wallet, xprv) = Wallet::create(&config, &seed).map_err(|e| {
@@ -169,6 +182,19 @@ impl BtcWallet {
         config: Config,
         mut privkey_load_callback: impl FnMut(&Config) -> Result<Xpriv, Error>,
     ) -> Result<Self, Error> {
+        if !Path::new(&config.privkey_fname).exists() {
+            return Err(err_log!(Error::Privkey(format!(
+                "private key file not exist: {}",
+                config.privkey_fname.to_string_lossy()
+            ))));
+        }
+        if !Path::new(&config.wallet_fname).exists() {
+            return Err(err_log!(Error::Privkey(format!(
+                "wallet key file not exist: {}",
+                config.wallet_fname.to_string_lossy()
+            ))));
+        }
+
         let xprv = privkey_load_callback(&config)?;
         let mut wallet = Wallet::load(&config, xprv).map_err(|e| {
             err_log!(Error::Wallet {
@@ -320,31 +346,24 @@ mod tests {
     /// 拡張秘密鍵をテキスト形式でファイル保存する(DANGER)
     fn save_text_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
         let xprv_str = xprv.to_string();
-        let mut f = File::create(&config.privkey_fname).map_err(|e| Error::Privkey {
-            reason: format!("File::create: {e}"),
-        })?;
-        writeln!(f, "{}", xprv_str).map_err(|e| Error::Privkey {
-            reason: format!("writeln!: {e}"),
-        })?;
+        let mut f = File::create(&config.privkey_fname)
+            .map_err(|e| Error::Privkey(format!("File::create: {e}")))?;
+        writeln!(f, "{}", xprv_str).map_err(|e| Error::Privkey(format!("writeln!: {e}")))?;
         Ok(())
     }
 
     /// save_text_private_key()で保存した拡張秘密鍵ファイルを読み込む
     fn load_text_private_key(config: &Config) -> Result<Xpriv, Error> {
         let mut xprv = String::new();
-        let mut f = File::open(&config.privkey_fname).map_err(|e| Error::Privkey {
-            reason: format!("File::open: {e}"),
-        })?;
-        f.read_to_string(&mut xprv).map_err(|e| Error::Privkey {
-            reason: format!("read_to_string: {e}"),
-        })?;
+        let mut f = File::open(&config.privkey_fname)
+            .map_err(|e| Error::Privkey(format!("File::open: {e}")))?;
+        f.read_to_string(&mut xprv)
+            .map_err(|e| Error::Privkey(format!("read_to_string: {e}")))?;
         if let Some(first_line) = xprv.lines().next() {
             let xprv_str = first_line.to_string();
             Ok(Xpriv::from_str(&xprv_str).map_err(|e| Error::Bip32 { source: e })?)
         } else {
-            Err(err_log!(Error::Privkey {
-                reason: "linex().next()".to_string(),
-            }))
+            Err(err_log!(Error::Privkey("linex().next()".to_string())))
         }
     }
 
