@@ -44,32 +44,40 @@ pub enum Error {
     #[error("config error: {0}")]
     Config(#[source] ConfigError),
 
-    #[error("backend: {0}")]
+    #[error("backend error: {0}")]
     Backend(#[source] BackendError),
 
-    #[error("encrypt/decrypt: {0}")]
+    #[error("encrypt/decrypt error: {0}")]
     EncDec(#[source] EncDecError),
 
-    #[error("connection: {0})")]
+    #[error("connection error: {0})")]
     CannotConnect(#[source] CannotConnectError),
 
-    #[error("wallet operation: {0}")]
+    #[error("wallet error: {0}")]
     Wallet(#[source] Box<WalletError>),
 
-    #[error("transaction conversion(tx_hex={tx_hex}): {source}")]
+    #[error("tx conversion error(tx_hex={tx_hex}): {source}")]
     TxConvert {
         tx_hex: String,
         #[source]
         source: FromHexError,
     },
 
-    #[error("TXID conversion: {0}")]
-    TxidConvert(#[source] HexToArrayError),
+    #[error("TXID conversion error(txid_hex={txid_hex}): {source}")]
+    TxidConvert {
+        txid_hex: String,
+        #[source]
+        source: HexToArrayError,
+    },
 
-    #[error("address parsing: {0}")]
-    Parse(#[source] ParseError),
+    #[error("parse error(str={str}): {source}")]
+    Parse {
+        str: String,
+        #[source]
+        source: ParseError,
+    },
 
-    #[error("BIP32 operation: {0}")]
+    #[error("BIP32 error: {0}")]
     Bip32(#[source] bip32::Error),
 
     #[error("fail access private key file: {0}")]
@@ -222,10 +230,18 @@ impl BtcWallet {
 
     /// アドレス文字列をAddress型に変換する。
     pub fn parse_address(&self, addr_str: &str) -> Result<Address, Error> {
-        let addr: Address<NetworkUnchecked> =
-            addr_str.parse().map_err(|e| err_log!(Error::Parse(e)))?;
-        addr.require_network(self.config.network)
-            .map_err(|e| err_log!(Error::Parse(e)))
+        let addr: Address<NetworkUnchecked> = addr_str.parse().map_err(|e| {
+            err_log!(Error::Parse {
+                str: addr_str.to_string(),
+                source: e,
+            })
+        })?;
+        addr.require_network(self.config.network).map_err(|e| {
+            err_log!(Error::Parse {
+                str: self.config.network.to_string(),
+                source: e,
+            })
+        })
     }
 
     /// TXIDに該当するトランザクションを取得する。
@@ -236,9 +252,12 @@ impl BtcWallet {
     }
 
     pub fn parse_txid_hex(&self, txid_hex: &str) -> Result<Txid, Error> {
-        txid_hex
-            .parse()
-            .map_err(|e| err_log!(Error::TxidConvert(e)))
+        txid_hex.parse().map_err(|e| {
+            err_log!(Error::TxidConvert {
+                txid_hex: txid_hex.to_string(),
+                source: e,
+            })
+        })
     }
 
     pub fn parse_tx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {

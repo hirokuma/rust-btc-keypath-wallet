@@ -50,7 +50,7 @@ pub enum EncDecError {
         source: wincode::ReadError,
     },
 
-    #[error("Argon2 error: {err_info}: {err}")]
+    #[error("argon2 error: {err_info}: {err}")]
     Argon2 {
         err_info: &'static str,
         err: argon2::Error,
