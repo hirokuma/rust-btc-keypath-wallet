@@ -20,8 +20,8 @@ fn main() -> Result<()> {
         .init();
 
     let config = Config {
-        wallet_fname: Path::new("./sample-wallet.bdk").to_path_buf(),
-        privkey_fname: Path::new("./sample-privkey.txt").to_path_buf(),
+        wallet_path: Path::new("./sample-wallet.bdk").to_path_buf(),
+        privkey_path: Path::new("./sample-privkey.txt").to_path_buf(),
         network: Network::Regtest,
         backend: btc_wallet::config::Backend::Electrum,
         electrum: btc_wallet::config::ElectrumConfig {
@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     };
     let load_privkey = |config: &Config| btc_wallet::load_encoded_private_key(config, passphrase);
 
-    let mut wallet = match config.privkey_fname.exists() {
+    let mut wallet = match config.privkey_path.exists() {
         true => {
             tracing::info!("load wallet");
             BtcWallet::load(config, load_privkey)

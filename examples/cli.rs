@@ -144,9 +144,9 @@ fn main() -> Result<()> {
             println!("txid: {}", txid);
         }
         Some(Commands::RemoveWalletFiles) => {
-            std::fs::remove_file(&config.wallet_fname)?;
-            println!("remove: {}", config.wallet_fname.to_string_lossy());
-            std::fs::remove_file(&config.wallet_fname)?;
+            std::fs::remove_file(&config.wallet_path)?;
+            println!("remove: {}", config.wallet_path.to_string_lossy());
+            std::fs::remove_file(&config.wallet_path)?;
         }
     }
 

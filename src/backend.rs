@@ -1,6 +1,5 @@
 use bdk_electrum::electrum_client;
 use std::{result::Result, sync::Arc};
-use thiserror::Error;
 
 use bdk_wallet::{
     KeychainKind,
@@ -10,13 +9,13 @@ use bdk_wallet::{
     },
 };
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum BackendSourceError {
     #[error("Electrum: {0}")]
     Electrum(#[from] electrum_client::Error),
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum BackendError {
     #[error("new instance: {err_info}: {source}")]
     New {

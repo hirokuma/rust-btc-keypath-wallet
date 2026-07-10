@@ -41,67 +41,43 @@ macro_rules! err_log {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("config error")]
-    Config {
-        #[source]
-        source: ConfigError,
-    },
+    #[error("config error: {0}")]
+    Config(#[source] ConfigError),
 
-    #[error("backend: {source}")]
-    Backend {
-        #[source]
-        source: BackendError,
-    },
+    #[error("backend: {0}")]
+    Backend(#[source] BackendError),
 
-    #[error("encrypt/decrypt: {source}")]
-    EncDec {
-        #[source]
-        source: EncDecError,
-    },
+    #[error("encrypt/decrypt: {0}")]
+    EncDec(#[source] EncDecError),
 
-    #[error("connection: {source})")]
-    CannotConnect {
-        #[source]
-        source: CannotConnectError,
-    },
+    #[error("connection: {0})")]
+    CannotConnect(#[source] CannotConnectError),
 
-    #[error("wallet operation: {source}")]
-    Wallet {
-        #[source]
-        source: Box<WalletError>,
-    },
+    #[error("wallet operation: {0}")]
+    Wallet(#[source] Box<WalletError>),
 
-    #[error("transaction conversion: {source}: tx_hex={tx_hex}")]
+    #[error("transaction conversion(tx_hex={tx_hex}): {source}")]
     TxConvert {
         tx_hex: String,
         #[source]
         source: FromHexError,
     },
 
-    #[error("TXID conversion: {source}")]
-    TxidConvert {
-        #[source]
-        source: HexToArrayError,
-    },
+    #[error("TXID conversion: {0}")]
+    TxidConvert(#[source] HexToArrayError),
 
-    #[error("address parsing: {source}")]
-    Parse {
-        #[source]
-        source: ParseError,
-    },
+    #[error("address parsing: {0}")]
+    Parse(#[source] ParseError),
 
-    #[error("BIP32 operation: {source}")]
-    Bip32 {
-        #[source]
-        source: bip32::Error,
-    },
+    #[error("BIP32 operation: {0}")]
+    Bip32(#[source] bip32::Error),
 
     #[error("fail access private key file: {0}")]
     Privkey(String),
 }
 
 pub fn load_config(config_fname: &Path) -> Result<Config, Error> {
-    Config::new(config_fname).map_err(|e| err_log!(Error::Config { source: e }))
+    Config::new(config_fname).map_err(|e| err_log!(Error::Config(e)))
 }
 
 /// 拡張秘密鍵をChaCha20Poly1305でファイル保存する
@@ -111,16 +87,16 @@ pub fn save_encoded_private_key(
     passphrase: &str,
 ) -> Result<(), Error> {
     let xprv_str = xprv.to_string();
-    encdec::encrypt_to_file(&config.privkey_fname, &xprv_str, passphrase)
-        .map_err(|e| err_log!(Error::EncDec { source: e }))?;
+    encdec::encrypt_to_file(&config.privkey_path, &xprv_str, passphrase)
+        .map_err(|e| err_log!(Error::EncDec(e)))?;
     Ok(())
 }
 
 /// save_encoded_private_key()で保存した拡張秘密鍵ファイルを読み込む
 pub fn load_encoded_private_key(config: &Config, passphrase: &str) -> Result<Xpriv, Error> {
-    let xprv_str = encdec::decrypt_from_file(&config.privkey_fname, passphrase)
-        .map_err(|e| err_log!(Error::EncDec { source: e }))?;
-    Xpriv::from_str(&xprv_str).map_err(|e| Error::Bip32 { source: e })
+    let xprv_str = encdec::decrypt_from_file(&config.privkey_path, passphrase)
+        .map_err(|e| err_log!(Error::EncDec(e)))?;
+    Xpriv::from_str(&xprv_str).map_err(|e| err_log!(Error::Bip32(e)))
 }
 
 pub struct BtcWallet {
@@ -135,39 +111,36 @@ impl BtcWallet {
         config: Config,
         mut privkey_save_callback: impl FnMut(&Xpriv, &Config) -> Result<(), Error>,
     ) -> Result<Self, Error> {
-        if Path::new(&config.privkey_fname).exists() {
+        if Path::new(&config.privkey_path).exists() {
             return Err(err_log!(Error::Privkey(format!(
                 "private key file already exist: {}",
-                config.privkey_fname.to_string_lossy()
+                config.privkey_path.to_string_lossy()
             ))));
         }
-        if Path::new(&config.wallet_fname).exists() {
+        if Path::new(&config.wallet_path).exists() {
             return Err(err_log!(Error::Privkey(format!(
                 "wallet key file already exist: {}",
-                config.wallet_fname.to_string_lossy()
+                config.wallet_path.to_string_lossy()
             ))));
         }
 
         let mut seed: [u8; 32] = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut seed);
-        let (mut wallet, xprv) = Wallet::create(&config, &seed).map_err(|e| {
-            err_log!(Error::Wallet {
-                source: Box::new(e),
-            })
-        })?;
+        let (mut wallet, xprv) =
+            Wallet::create(&config, &seed).map_err(|e| err_log!(Error::Wallet(Box::new(e))))?;
         privkey_save_callback(&xprv, &config)?;
 
         let rpc = match config.backend {
             config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)
-                .map_err(|e| err_log!(Error::Backend { source: e }))?,
+                .map_err(|e| err_log!(Error::Backend(e)))?,
         };
         let req = wallet.start_full_scan();
         let update = rpc
             .initial_scan(req)
-            .map_err(|e| err_log!(Error::Backend { source: e }))?;
+            .map_err(|e| err_log!(Error::Backend(e)))?;
         wallet
             .apply_update(update)
-            .map_err(|e| err_log!(Error::CannotConnect { source: e }))?;
+            .map_err(|e| err_log!(Error::CannotConnect(e)))?;
 
         debug!("create done");
         Ok(Self {
@@ -182,36 +155,33 @@ impl BtcWallet {
         config: Config,
         mut privkey_load_callback: impl FnMut(&Config) -> Result<Xpriv, Error>,
     ) -> Result<Self, Error> {
-        if !Path::new(&config.privkey_fname).exists() {
+        if !Path::new(&config.privkey_path).exists() {
             return Err(err_log!(Error::Privkey(format!(
                 "private key file not exist: {}",
-                config.privkey_fname.to_string_lossy()
+                config.privkey_path.to_string_lossy()
             ))));
         }
-        if !Path::new(&config.wallet_fname).exists() {
+        if !Path::new(&config.wallet_path).exists() {
             return Err(err_log!(Error::Privkey(format!(
                 "wallet key file not exist: {}",
-                config.wallet_fname.to_string_lossy()
+                config.wallet_path.to_string_lossy()
             ))));
         }
 
         let xprv = privkey_load_callback(&config)?;
-        let mut wallet = Wallet::load(&config, xprv).map_err(|e| {
-            err_log!(Error::Wallet {
-                source: Box::new(e),
-            })
-        })?;
+        let mut wallet =
+            Wallet::load(&config, xprv).map_err(|e| err_log!(Error::Wallet(Box::new(e))))?;
         let rpc = match config.backend {
             config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)
-                .map_err(|e| err_log!(Error::Backend { source: e }))?,
+                .map_err(|e| err_log!(Error::Backend(e)))?,
         };
         let req = wallet.start_full_scan();
         let update = rpc
             .initial_scan(req)
-            .map_err(|e| err_log!(Error::Backend { source: e }))?;
+            .map_err(|e| err_log!(Error::Backend(e)))?;
         wallet
             .apply_update(update)
-            .map_err(|e| err_log!(Error::CannotConnect { source: e }))?;
+            .map_err(|e| err_log!(Error::CannotConnect(e)))?;
 
         debug!("load done");
         Ok(Self {
@@ -229,10 +199,10 @@ impl BtcWallet {
         let update = self
             .rpc
             .sync(req)
-            .map_err(|e| err_log!(Error::Backend { source: e }))?;
+            .map_err(|e| err_log!(Error::Backend(e)))?;
         self.wallet
             .apply_update(update)
-            .map_err(|e| err_log!(Error::CannotConnect { source: e }))
+            .map_err(|e| err_log!(Error::CannotConnect(e)))
     }
 
     /// 残高取得
@@ -253,28 +223,30 @@ impl BtcWallet {
     /// アドレス文字列をAddress型に変換する。
     pub fn parse_address(&self, addr_str: &str) -> Result<Address, Error> {
         let addr: Address<NetworkUnchecked> =
-            addr_str.parse().map_err(|e| Error::Parse { source: e })?;
+            addr_str.parse().map_err(|e| err_log!(Error::Parse(e)))?;
         addr.require_network(self.config.network)
-            .map_err(|e| Error::Parse { source: e })
+            .map_err(|e| err_log!(Error::Parse(e)))
     }
 
     /// TXIDに該当するトランザクションを取得する。
     pub fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, Error> {
         self.rpc
             .get_tx(txid)
-            .map_err(|e| err_log!(Error::Backend { source: e }))
+            .map_err(|e| err_log!(Error::Backend(e)))
     }
 
     pub fn parse_txid_hex(&self, txid_hex: &str) -> Result<Txid, Error> {
         txid_hex
             .parse()
-            .map_err(|e| Error::TxidConvert { source: e })
+            .map_err(|e| err_log!(Error::TxidConvert(e)))
     }
 
     pub fn parse_tx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {
-        deserialize_hex(tx_hex).map_err(move |e| Error::TxConvert {
-            tx_hex: tx_hex.to_string(),
-            source: e,
+        deserialize_hex(tx_hex).map_err(move |e| {
+            err_log!(Error::TxConvert {
+                tx_hex: tx_hex.to_string(),
+                source: e,
+            })
         })
     }
 
@@ -323,17 +295,13 @@ impl BtcWallet {
 
         self.wallet
             .create_tx(addr, amount, fee_rate, sighash_type)
-            .map_err(|e| {
-                err_log!(Error::Wallet {
-                    source: Box::new(e),
-                })
-            })
+            .map_err(|e| err_log!(Error::Wallet(Box::new(e))))
     }
 
     pub fn send_tx(&self, tx: &Transaction) -> Result<Txid, Error> {
         self.rpc
             .send_tx(tx)
-            .map_err(|e| err_log!(Error::Backend { source: e }))
+            .map_err(|e| err_log!(Error::Backend(e)))
     }
 }
 
@@ -346,22 +314,23 @@ mod tests {
     /// 拡張秘密鍵をテキスト形式でファイル保存する(DANGER)
     fn save_text_private_key(xprv: &Xpriv, config: &Config) -> Result<(), Error> {
         let xprv_str = xprv.to_string();
-        let mut f = File::create(&config.privkey_fname)
+        let mut f = File::create(&config.privkey_path)
             .map_err(|e| Error::Privkey(format!("File::create: {e}")))?;
-        writeln!(f, "{}", xprv_str).map_err(|e| Error::Privkey(format!("writeln!: {e}")))?;
+        writeln!(f, "{}", xprv_str)
+            .map_err(|e| err_log!(Error::Privkey(format!("writeln!: {e}"))))?;
         Ok(())
     }
 
     /// save_text_private_key()で保存した拡張秘密鍵ファイルを読み込む
     fn load_text_private_key(config: &Config) -> Result<Xpriv, Error> {
         let mut xprv = String::new();
-        let mut f = File::open(&config.privkey_fname)
+        let mut f = File::open(&config.privkey_path)
             .map_err(|e| Error::Privkey(format!("File::open: {e}")))?;
         f.read_to_string(&mut xprv)
             .map_err(|e| Error::Privkey(format!("read_to_string: {e}")))?;
         if let Some(first_line) = xprv.lines().next() {
             let xprv_str = first_line.to_string();
-            Ok(Xpriv::from_str(&xprv_str).map_err(|e| Error::Bip32 { source: e })?)
+            Ok(Xpriv::from_str(&xprv_str).map_err(|e| err_log!(Error::Bip32(e)))?)
         } else {
             Err(err_log!(Error::Privkey("linex().next()".to_string())))
         }
@@ -401,7 +370,7 @@ mod tests {
             let _ = BtcWallet::create(config.clone(), save_text_private_key).unwrap();
         }
         {
-            std::fs::remove_file(&config.privkey_fname).unwrap();
+            std::fs::remove_file(&config.privkey_path).unwrap();
             let result = BtcWallet::load(config, load_text_private_key);
             assert!(result.is_err());
         }
@@ -415,7 +384,7 @@ mod tests {
             let _ = BtcWallet::create(config.clone(), save_text_private_key).unwrap();
         }
         {
-            std::fs::remove_file(&config.wallet_fname).unwrap();
+            std::fs::remove_file(&config.wallet_path).unwrap();
             let result = BtcWallet::load(config.clone(), load_text_private_key);
             assert!(result.is_err());
         }
@@ -477,8 +446,8 @@ mod tests {
         let bdk_path = dir.path().join("wallet.bdk");
         let xpriv_path = dir.path().join("xpriv.txt");
         Config {
-            wallet_fname: bdk_path,
-            privkey_fname: xpriv_path,
+            wallet_path: bdk_path,
+            privkey_path: xpriv_path,
             network: bdk_wallet::bitcoin::Network::Regtest,
             backend: config::Backend::Electrum,
             electrum: config::ElectrumConfig {

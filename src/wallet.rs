@@ -18,12 +18,11 @@ use bdk_wallet::{
     signer::SignerError,
     template::{Bip86, DescriptorTemplate},
 };
-use thiserror::Error;
 use tracing::*;
 
 use crate::config::Config;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum WalletError {
     #[error("create wallet error: path={path}: {source}")]
     CreateWallet {
@@ -127,11 +126,11 @@ impl Wallet {
                 source: e,
             })?;
         let mut conn = Connection::open_with_flags(
-            &config.wallet_fname,
+            &config.wallet_path,
             OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
         )
         .map_err(|e| WalletError::OpenWallet {
-            path: config.wallet_fname.clone(),
+            path: config.wallet_path.clone(),
             err_info: "create wallet",
             source: e,
         })?;
@@ -141,7 +140,7 @@ impl Wallet {
             .network(config.network)
             .create_wallet(&mut conn)
             .map_err(|e| WalletError::CreateWallet {
-                path: config.wallet_fname.clone(),
+                path: config.wallet_path.clone(),
                 source: e,
             })?;
 
@@ -149,13 +148,13 @@ impl Wallet {
     }
 
     pub fn load(config: &Config, xprv: Xpriv) -> Result<Self, WalletError> {
-        if !config.wallet_fname.exists() {
+        if !config.wallet_path.exists() {
             return Err(WalletError::WalletFile("wallet file not exists"));
         }
         let mut conn =
-            Connection::open_with_flags(&config.wallet_fname, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            Connection::open_with_flags(&config.wallet_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
                 .map_err(|e| WalletError::OpenWallet {
-                    path: config.wallet_fname.clone(),
+                    path: config.wallet_path.clone(),
                     err_info: "load wallet",
                     source: e,
                 })?;
@@ -183,7 +182,7 @@ impl Wallet {
             .check_network(config.network)
             .load_wallet(&mut conn)
             .map_err(|e| WalletError::LoadWallet {
-                path: config.wallet_fname.clone(),
+                path: config.wallet_path.clone(),
                 source: e,
             })?;
         let wallet = match wallet_opt {

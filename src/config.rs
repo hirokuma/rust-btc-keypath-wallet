@@ -6,12 +6,11 @@ use std::{
 
 use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
-use thiserror::Error;
 use tracing::*;
 
 use crate::err_log;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ConfigError {
     #[error("I/O error: {err_info}: {source}")]
     File {
@@ -41,10 +40,10 @@ pub enum Backend {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     /// BDK Wallet filename
-    pub wallet_fname: PathBuf,
+    pub wallet_path: PathBuf,
 
     /// Private key filename
-    pub privkey_fname: PathBuf,
+    pub privkey_path: PathBuf,
 
     /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
