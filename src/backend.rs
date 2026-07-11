@@ -17,8 +17,9 @@ pub enum BackendSourceError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum BackendError {
-    #[error("new instance")]
-    New {
+    #[error("new client error: server={server}")]
+    NewClient {
+        server: String,
         #[source]
         source: BackendSourceError,
     },

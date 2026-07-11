@@ -13,7 +13,7 @@ use tracing::*;
 use crate::{
     backend::{BackendError, BackendRpc, BackendSourceError},
     config::ElectrumConfig,
-    log_err, log_err_wp,
+    log_err,
 };
 
 pub struct ElectrumRpc {
@@ -25,8 +25,9 @@ pub struct ElectrumRpc {
 impl ElectrumRpc {
     pub fn new(config: &ElectrumConfig) -> Result<ElectrumRpc, BackendError> {
         let client = electrum_client::Client::new(&config.server).map_err(|e| {
-            log_err_wp!(
-                BackendError::New {
+            log_err!(
+                BackendError::NewClient {
+                    server: config.server.clone(),
                     source: BackendSourceError::Electrum(e),
                 },
                 "new",
@@ -51,7 +52,7 @@ impl BackendRpc for ElectrumRpc {
             .client
             .full_scan(req, self.gap_limit, self.batch_size, false)
             .map_err(|e| {
-                log_err_wp!(
+                log_err!(
                     BackendError::FullScan {
                         source: BackendSourceError::Electrum(e),
                     },
@@ -69,7 +70,7 @@ impl BackendRpc for ElectrumRpc {
         req: SyncRequestBuilder<(KeychainKind, u32)>,
     ) -> Result<SyncResponse, BackendError> {
         let update = self.client.sync(req, self.batch_size, false).map_err(|e| {
-            log_err_wp!(
+            log_err!(
                 BackendError::Sync {
                     source: BackendSourceError::Electrum(e),
                 },

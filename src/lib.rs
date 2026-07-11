@@ -35,21 +35,18 @@ use crate::{
     wallet::{Wallet, WalletError},
 };
 
-// log with parameter
-#[macro_export]
-macro_rules! log_err_wp {
-    ($err_variant:expr, $msg:expr, $($key:ident = $val:expr),* $(,)?) => {{
-        let err = $err_variant;
-        error!(error = ?err, $($key = %$val),*, $msg);
-        err
-    }};
-}
-
 #[macro_export]
 macro_rules! log_err {
     ($err_variant:expr, $msg:expr) => {{
         let err = $err_variant;
         error!(error = ?err, $msg);
+        err
+    }};
+
+    // with (key=value)+
+    ($err_variant:expr, $msg:expr, $($key:ident = $val:expr),* $(,)?) => {{
+        let err = $err_variant;
+        error!(error = ?err, $($key = %$val),*, $msg);
         err
     }};
 }

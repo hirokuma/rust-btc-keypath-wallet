@@ -21,8 +21,8 @@ use crate::log_err;
 
 #[derive(thiserror::Error, Debug)]
 pub enum EncDecError {
-    #[error("I/O error: {path}")]
-    Io {
+    #[error("file access error: {path}")]
+    File {
         path: PathBuf,
         #[source]
         source: std::io::Error,
@@ -138,7 +138,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     // 1. ファイル全体の読み込み
     let mut file = File::open(path).map_err(|e| {
         log_err!(
-            EncDecError::Io {
+            EncDecError::File {
                 path: path.to_path_buf(),
                 source: e,
             },
@@ -148,7 +148,7 @@ pub fn decrypt_from_file(path: &Path, passphrase: &str) -> Result<String, EncDec
     let mut file_content = Vec::new();
     file.read_to_end(&mut file_content).map_err(|e| {
         log_err!(
-            EncDecError::Io {
+            EncDecError::File {
                 path: path.to_path_buf(),
                 source: e,
             },
@@ -223,7 +223,7 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     let target_dir = path.parent().unwrap_or(Path::new("."));
     let mut file = NamedTempFile::new_in(target_dir).map_err(|e| {
         log_err!(
-            EncDecError::Io {
+            EncDecError::File {
                 path: target_dir.to_path_buf(),
                 source: e,
             },
@@ -235,7 +235,7 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     let version_bytes: [u8; 4] = VERSION_LATEST.to_le_bytes();
     file.write_all(&version_bytes).map_err(|e| {
         log_err!(
-            EncDecError::Io {
+            EncDecError::File {
                 path: path.to_path_buf(),
                 source: e,
             },
@@ -244,7 +244,7 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     })?;
     file.write_all(&enc).map_err(|e| {
         log_err!(
-            EncDecError::Io {
+            EncDecError::File {
                 path: path.to_path_buf(),
                 source: e,
             },
@@ -253,7 +253,7 @@ fn write_file_v1(path: &Path, enc_data: &FormatV1) -> Result<(), EncDecError> {
     })?;
     file.persist(path).map_err(|e| {
         log_err!(
-            EncDecError::Io {
+            EncDecError::File {
                 path: path.to_path_buf(),
                 source: e.error,
             },
