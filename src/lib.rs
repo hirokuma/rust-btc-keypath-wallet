@@ -1,17 +1,14 @@
 mod backend;
-pub mod config;
+mod config;
 mod electrum;
 mod encdec;
 mod wallet;
 
-pub use bdk_wallet::{
-    self, Balance,
-    bitcoin::{self, Address, Amount, Transaction, Txid, bip32::Xpriv},
-    miniscript,
-};
+pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
+pub use bdk_wallet::{self, Balance, miniscript};
 use bdk_wallet::{
     bitcoin::{
-        FeeRate,
+        self, FeeRate,
         address::{NetworkUnchecked, ParseError},
         bip32,
         consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
@@ -28,9 +25,10 @@ use std::{
 };
 use tracing::*;
 
+pub use crate::config::{Backend, Config, ElectrumConfig};
 use crate::{
     backend::{BackendError, BackendRpc},
-    config::{Config, ConfigError},
+    config::ConfigError,
     encdec::EncDecError,
     wallet::{Wallet, WalletError},
 };

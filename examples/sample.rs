@@ -1,6 +1,5 @@
 use anyhow::Result;
-use bdk_wallet::bitcoin::Network;
-use btc_wallet::{self, BtcWallet, config::Config};
+use btc_wallet::{self, BtcWallet, Config, Network};
 use std::{
     io::{self, Write},
     path::Path,
@@ -23,8 +22,8 @@ fn main() -> Result<()> {
         wallet_path: Path::new("./sample-wallet.bdk").to_path_buf(),
         privkey_path: Path::new("./sample-privkey.txt").to_path_buf(),
         network: Network::Regtest,
-        backend: btc_wallet::config::Backend::Electrum,
-        electrum: btc_wallet::config::ElectrumConfig {
+        backend: btc_wallet::Backend::Electrum,
+        electrum: btc_wallet::ElectrumConfig {
             enabled: true,
             server: "tcp://127.0.0.1:50001".to_string(),
             batch_size: None,

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use btc_wallet::{self, BtcWallet, config::Config};
+use btc_wallet::{self, BtcWallet, Config};
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing::*;
 
