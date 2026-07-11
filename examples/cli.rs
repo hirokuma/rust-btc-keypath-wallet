@@ -3,8 +3,8 @@ use std::{path::Path, str::FromStr};
 use anyhow::Result;
 use btc_wallet::{self, BtcWallet, Config, Xpriv};
 use clap::{CommandFactory, Parser, Subcommand};
-use rust_wallet_utils::encdec;
 use tracing::*;
+use wallet_utils::encdec;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

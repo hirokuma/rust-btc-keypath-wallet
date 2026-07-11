@@ -5,11 +5,12 @@ name = "btc_wallet"
 version = "0.0.1"
 
 [dependencies]
+wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.0" }
+
 argon2 = {version = "0.5.3", features = ["password-hash"]}
 bdk_electrum = "0.24.0"
 bdk_wallet = {version = "3.1.0", features = ["rusqlite"]}
 chacha20poly1305 = "0.11.0"
-rust_wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.0" }
 serde = {version = "1.0.228", features = ["derive"]}
 tempfile = "3.27.0"
 thiserror = "2.0.18"

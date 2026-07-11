@@ -16,13 +16,13 @@ use bdk_wallet::{
     },
     chain::local_chain::CannotConnectError,
 };
-use rust_wallet_utils::{encdec, log_err};
 use std::{
     path::{Path, PathBuf},
     result::Result,
     sync::Arc,
 };
 use tracing::*;
+use wallet_utils::{encdec, log_err};
 
 pub use crate::config::{Backend, Config, ElectrumConfig};
 use crate::{

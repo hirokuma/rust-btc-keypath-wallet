@@ -1,6 +1,5 @@
 use anyhow::Result;
 use btc_wallet::{self, BtcWallet, Config, Network, Xpriv};
-use rust_wallet_utils::encdec;
 use std::{
     io::{self, Write},
     path::Path,
@@ -8,6 +7,7 @@ use std::{
 };
 use tracing::*;
 use tracing_subscriber::{EnvFilter, prelude::*};
+use wallet_utils::encdec;
 
 fn main() -> Result<()> {
     let filter = EnvFilter::builder().parse_lossy("debug,btc_wallet=trace");
