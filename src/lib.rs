@@ -16,6 +16,7 @@ use bdk_wallet::{
     },
     chain::local_chain::CannotConnectError,
 };
+use std::str::FromStr;
 use std::{
     path::{Path, PathBuf},
     result::Result,
@@ -90,7 +91,7 @@ impl BtcWallet {
     /// BtcWalletを生成する。ウォレットファイルか秘密鍵ファイルがある場合は失敗する。
     pub fn create(
         config: Config,
-        mut privkey_save_callback: impl FnMut(&Xpriv, &Config) -> Result<(), encdec::EncDecError>,
+        mut privkey_save_callback: impl FnMut(&str, &Config) -> Result<(), encdec::EncDecError>,
     ) -> Result<Self, Error> {
         if Path::new(&config.privkey_path).exists() {
             return Err(log_err!(
@@ -109,7 +110,7 @@ impl BtcWallet {
         rand::thread_rng().fill_bytes(&mut seed);
         let (mut wallet, xprv) = Wallet::create(&config, &seed)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "create wallet"))?;
-        privkey_save_callback(&xprv, &config)
+        privkey_save_callback(&xprv.to_string(), &config)
             .map_err(|e| log_err!(Error::WalletEncDec(e), "privkey_save_callback"))?;
 
         let rpc = match config.backend {
@@ -135,7 +136,7 @@ impl BtcWallet {
     /// BtcWalletをloadする。ウォレットファイルか秘密鍵ファイルがない場合は失敗する。
     pub fn load(
         config: Config,
-        mut privkey_load_callback: impl FnMut(&Config) -> Result<Xpriv, encdec::EncDecError>,
+        mut privkey_load_callback: impl FnMut(&Config) -> Result<String, encdec::EncDecError>,
     ) -> Result<Self, Error> {
         if !Path::new(&config.privkey_path).exists() {
             return Err(log_err!(
@@ -152,6 +153,8 @@ impl BtcWallet {
 
         let xprv = privkey_load_callback(&config)
             .map_err(|e| log_err!(Error::WalletEncDec(e), "privkey_load_callback"))?;
+        let xprv =
+            Xpriv::from_str(&xprv).map_err(|e| log_err!(Error::Bip32(e), "Xpriv::from_str"))?;
         let mut wallet = Wallet::load(&config, xprv)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "load wallet"))?;
         let rpc = match config.backend {
@@ -314,16 +317,14 @@ impl BtcWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{result::Result, str::FromStr};
+    use std::result::Result;
     use tempfile::tempdir;
 
-    fn save_private_key(xprv: &Xpriv, config: &Config) -> Result<(), encdec::EncDecError> {
-        let xprv_str = xprv.to_string();
-        encdec::save_encoded_private_key(&xprv_str, &config.privkey_path, "passphrase")
+    fn save_private_key(xprv: &str, config: &Config) -> Result<(), encdec::EncDecError> {
+        encdec::save_encoded_private_key(xprv, &config.privkey_path, "passphrase")
     }
-    fn load_private_key(config: &Config) -> Result<Xpriv, encdec::EncDecError> {
-        let priv_data = encdec::load_encoded_private_key(&config.privkey_path, "passphrase")?;
-        Xpriv::from_str(&priv_data).map_err(|_e| encdec::EncDecError::InvalidData)
+    fn load_private_key(config: &Config) -> Result<String, encdec::EncDecError> {
+        encdec::load_encoded_private_key(&config.privkey_path, "passphrase")
     }
 
     #[test]
@@ -413,12 +414,12 @@ mod tests {
     fn test_create_load_with_callback() {
         let dir = tempdir().unwrap();
         let config = make_config(&dir);
-        let mut saved_privkey: Option<Xpriv> = None;
+        let mut saved_privkey: Option<String> = None;
 
         {
             let save_callback =
-                |privkey: &Xpriv, _config: &Config| -> Result<(), encdec::EncDecError> {
-                    saved_privkey = Some(*privkey);
+                |privkey: &str, _config: &Config| -> Result<(), encdec::EncDecError> {
+                    saved_privkey = Some(privkey.to_string()); // call check
                     Ok(())
                 };
             let _ = BtcWallet::create(config.clone(), save_callback).unwrap();
@@ -426,9 +427,8 @@ mod tests {
         }
 
         {
-            let load_callback = |_config: &Config| -> Result<Xpriv, encdec::EncDecError> {
-                Ok(saved_privkey.unwrap())
-            };
+            let load_callback =
+                |_config: &Config| -> Result<String, encdec::EncDecError> { Ok("".to_string()) };
             let result = BtcWallet::load(config.clone(), load_callback);
             assert!(result.is_err()); // save_callbackでファイル保存していないのでエラーになる
         }

@@ -1,7 +1,7 @@
-use std::{path::Path, str::FromStr};
+use std::path::Path;
 
 use anyhow::Result;
-use btc_wallet::{self, BtcWallet, Config, Xpriv};
+use btc_wallet::{self, BtcWallet, Config};
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing::*;
 use wallet_utils::encdec;
@@ -66,14 +66,11 @@ fn main() -> Result<()> {
     let config = btc_wallet::load_config(Path::new("./config.toml"))
         .inspect_err(|e| error!("load_config: {e}"))?;
     let passphrase = "SuperSecurePassword123!";
-    let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
-        let xprv = xprv.to_string();
-        encdec::save_encoded_private_key(&xprv, &config.privkey_path, passphrase)
+    let save_privkey = |xprv: &str, config: &Config| {
+        encdec::save_encoded_private_key(xprv, &config.privkey_path, passphrase)
     };
-    let load_privkey = |config: &Config| {
-        let priv_data = encdec::load_encoded_private_key(&config.privkey_path, passphrase)?;
-        Xpriv::from_str(&priv_data).map_err(|_e| encdec::EncDecError::InvalidData)
-    };
+    let load_privkey =
+        |config: &Config| encdec::load_encoded_private_key(&config.privkey_path, passphrase);
 
     match cli.command {
         None => {
