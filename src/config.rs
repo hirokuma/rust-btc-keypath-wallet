@@ -1,27 +1,26 @@
-use std::{fs::File, io::prelude::*, path::PathBuf};
+use std::{
+    fs::File,
+    io::prelude::*,
+    path::{Path, PathBuf},
+};
 
 use bdk_wallet::bitcoin::Network;
 use serde::Deserialize;
-use thiserror::Error;
 use tracing::*;
 
-use crate::err_log;
+use crate::log_err;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ConfigError {
-    #[error("I/O error({source}): {err_info}")]
+    #[error("I/O error: {path}")]
     File {
         path: PathBuf,
-        err_info: &'static str,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("TOML parsing error({source})")]
-    Toml {
-        #[source]
-        source: toml::de::Error,
-    },
+    #[error("TOML parsing error")]
+    Toml(#[source] toml::de::Error),
 
     #[error("no enabled backend")]
     NoBackend,
@@ -37,10 +36,10 @@ pub enum Backend {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     /// BDK Wallet filename
-    pub wallet_fname: PathBuf,
+    pub wallet_path: PathBuf,
 
     /// Private key filename
-    pub privkey_fname: PathBuf,
+    pub privkey_path: PathBuf,
 
     /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
@@ -71,24 +70,28 @@ pub struct ElectrumConfig {
 }
 
 impl Config {
-    pub fn new(fname: &str) -> Result<Config, ConfigError> {
+    pub fn new(fname: &Path) -> Result<Config, ConfigError> {
         let mut settings = String::new();
         let mut f = File::open(fname).map_err(|e| {
-            err_log!(ConfigError::File {
-                path: fname.into(),
-                err_info: "open",
-                source: e,
-            })
+            log_err!(
+                ConfigError::File {
+                    path: fname.into(),
+                    source: e,
+                },
+                "oepn"
+            )
         })?;
         f.read_to_string(&mut settings).map_err(|e| {
-            err_log!(ConfigError::File {
-                path: fname.into(),
-                err_info: "read_to_string",
-                source: e,
-            })
+            log_err!(
+                ConfigError::File {
+                    path: fname.into(),
+                    source: e,
+                },
+                "read_to_string"
+            )
         })?;
         let data: Config =
-            toml::from_str(&settings).map_err(|e| err_log!(ConfigError::Toml { source: e }))?;
+            toml::from_str(&settings).map_err(|e| log_err!(ConfigError::Toml(e), "config"))?;
         if !data.electrum.enabled {
             return Err(ConfigError::NoBackend);
         }

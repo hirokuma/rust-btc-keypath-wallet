@@ -1,6 +1,5 @@
 use bdk_electrum::electrum_client;
 use std::{result::Result, sync::Arc};
-use thiserror::Error;
 
 use bdk_wallet::{
     KeychainKind,
@@ -10,43 +9,41 @@ use bdk_wallet::{
     },
 };
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum BackendSourceError {
     #[error("Electrum: {0}")]
     Electrum(#[from] electrum_client::Error),
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum BackendError {
-    #[error("new instance({source}): {err_info}")]
-    New {
-        err_info: String,
+    #[error("new client error: server={server}")]
+    NewClient {
+        server: String,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("full scan error({source}): {err_info}")]
+    #[error("full scan error")]
     FullScan {
-        err_info: String,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("sync error({source}): {err_info}")]
+    #[error("sync error")]
     Sync {
-        err_info: String,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("get transaction error({source}): txid={txid}")]
+    #[error("get transaction error")]
     GetTx {
         txid: Txid,
         #[source]
         source: BackendSourceError,
     },
 
-    #[error("send transaction error({source}): inputs={inputs}, outputs={outputs}")]
+    #[error("send transaction error")]
     SendTx {
         inputs: usize,
         outputs: usize,

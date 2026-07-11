@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use anyhow::Result;
-use btc_wallet::{self, BtcWallet, config::Config};
+use btc_wallet::{self, BtcWallet, Config};
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing::*;
 
@@ -60,8 +62,8 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    let config =
-        btc_wallet::load_config("./config.toml").inspect_err(|e| error!("load_config: {e}"))?;
+    let config = btc_wallet::load_config(Path::new("./config.toml"))
+        .inspect_err(|e| error!("load_config: {e}"))?;
     let passphrase = "SuperSecurePassword123!";
     let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
         btc_wallet::save_encoded_private_key(xprv, config, passphrase)
@@ -142,9 +144,9 @@ fn main() -> Result<()> {
             println!("txid: {}", txid);
         }
         Some(Commands::RemoveWalletFiles) => {
-            std::fs::remove_file(&config.wallet_fname)?;
-            println!("remove: {}", config.wallet_fname.to_string_lossy());
-            std::fs::remove_file(&config.wallet_fname)?;
+            std::fs::remove_file(&config.wallet_path)?;
+            println!("remove: {}", config.wallet_path.to_string_lossy());
+            std::fs::remove_file(&config.wallet_path)?;
         }
     }
 

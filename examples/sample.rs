@@ -1,6 +1,5 @@
 use anyhow::Result;
-use bdk_wallet::bitcoin::Network;
-use btc_wallet::{self, BtcWallet, config::Config};
+use btc_wallet::{self, BtcWallet, Config, Network};
 use std::{
     io::{self, Write},
     path::Path,
@@ -9,7 +8,7 @@ use tracing::*;
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 fn main() -> Result<()> {
-    let filter = EnvFilter::builder().parse_lossy("warn,btc_wallet=off");
+    let filter = EnvFilter::builder().parse_lossy("debug,btc_wallet=trace");
     tracing_subscriber::Registry::default()
         .with(
             tracing_subscriber::fmt::layer()
@@ -20,11 +19,11 @@ fn main() -> Result<()> {
         .init();
 
     let config = Config {
-        wallet_fname: Path::new("./sample-wallet.bdk").to_path_buf(),
-        privkey_fname: Path::new("./sample-privkey.txt").to_path_buf(),
+        wallet_path: Path::new("./sample-wallet.bdk").to_path_buf(),
+        privkey_path: Path::new("./sample-privkey.txt").to_path_buf(),
         network: Network::Regtest,
-        backend: btc_wallet::config::Backend::Electrum,
-        electrum: btc_wallet::config::ElectrumConfig {
+        backend: btc_wallet::Backend::Electrum,
+        electrum: btc_wallet::ElectrumConfig {
             enabled: true,
             server: "tcp://127.0.0.1:50001".to_string(),
             batch_size: None,
@@ -38,7 +37,7 @@ fn main() -> Result<()> {
     };
     let load_privkey = |config: &Config| btc_wallet::load_encoded_private_key(config, passphrase);
 
-    let mut wallet = match config.privkey_fname.exists() {
+    let mut wallet = match config.privkey_path.exists() {
         true => {
             tracing::info!("load wallet");
             BtcWallet::load(config, load_privkey)
@@ -48,7 +47,7 @@ fn main() -> Result<()> {
             BtcWallet::create(config, save_privkey)
         }
     }
-    .inspect_err(|e| error!("Fail wallet instance creation: {e}"))?;
+    .inspect_err(|e| error!(Err=?e, "Fail wallet instance creation"))?;
     debug!("wallet created/loaded: {}", wallet.config.network);
 
     let addr1 = wallet.new_address();
