@@ -52,7 +52,7 @@ pub struct Config {
 }
 
 /// Electrum backend config
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct ElectrumConfig {
     /// true: enable this backend
     #[serde(default)]
@@ -63,10 +63,19 @@ pub struct ElectrumConfig {
     pub server: String,
 
     /// Batch size
-    pub batch_size: Option<usize>,
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
 
     /// Gap limit
-    pub gap_limit: Option<usize>,
+    #[serde(default = "default_gap_limit")]
+    pub gap_limit: usize,
+}
+
+fn default_batch_size() -> usize {
+    30
+}
+fn default_gap_limit() -> usize {
+    20
 }
 
 impl Config {

@@ -27,8 +27,7 @@ fn main() -> Result<()> {
         electrum: btc_wallet::ElectrumConfig {
             enabled: true,
             server: "tcp://127.0.0.1:50001".to_string(),
-            batch_size: None,
-            gap_limit: None,
+            ..Default::default()
         },
     };
 

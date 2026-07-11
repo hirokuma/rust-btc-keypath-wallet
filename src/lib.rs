@@ -444,8 +444,8 @@ mod tests {
             electrum: config::ElectrumConfig {
                 enabled: true,
                 server: "tcp://127.0.0.1:50001".to_string(),
-                batch_size: Some(10),
-                gap_limit: Some(20),
+                batch_size: 10,
+                gap_limit: 20,
             },
         }
     }

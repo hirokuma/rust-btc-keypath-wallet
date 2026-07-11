@@ -37,8 +37,8 @@ impl ElectrumRpc {
         let client = BdkElectrumClient::new(client);
         Ok(ElectrumRpc {
             client,
-            batch_size: config.batch_size.unwrap_or(30),
-            gap_limit: config.gap_limit.unwrap_or(20),
+            batch_size: config.batch_size,
+            gap_limit: config.gap_limit,
         })
     }
 }
