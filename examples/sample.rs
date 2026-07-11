@@ -33,11 +33,9 @@ fn main() -> Result<()> {
     };
 
     let passphrase = "SuperSecurePassword123!";
-    let save_privkey = |xprv: &str, config: &Config| {
-        encdec::save_encoded_private_key(xprv, &config.privkey_path, passphrase)
-    };
-    let load_privkey =
-        |config: &Config| encdec::load_encoded_private_key(&config.privkey_path, passphrase);
+    let save_privkey =
+        |path: &Path, xprv: &str| encdec::save_encoded_private_key(path, xprv, passphrase);
+    let load_privkey = |path: &Path| encdec::load_encoded_private_key(path, passphrase);
 
     let mut wallet = match config.privkey_path.exists() {
         true => {
