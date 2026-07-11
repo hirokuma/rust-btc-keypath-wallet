@@ -1,8 +1,10 @@
 use anyhow::Result;
-use btc_wallet::{self, BtcWallet, Config, Network};
+use btc_wallet::{self, BtcWallet, Config, Network, Xpriv};
+use rust_wallet_utils::encdec;
 use std::{
     io::{self, Write},
     path::Path,
+    str::FromStr,
 };
 use tracing::*;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -33,9 +35,13 @@ fn main() -> Result<()> {
 
     let passphrase = "SuperSecurePassword123!";
     let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
-        btc_wallet::save_encoded_private_key(xprv, config, passphrase)
+        let xprv_str = xprv.to_string();
+        encdec::save_encoded_private_key(&xprv_str, &config.privkey_path, passphrase)
     };
-    let load_privkey = |config: &Config| btc_wallet::load_encoded_private_key(config, passphrase);
+    let load_privkey = |config: &Config| {
+        let priv_data = encdec::load_encoded_private_key(&config.privkey_path, passphrase)?;
+        Xpriv::from_str(&priv_data).map_err(|_e| encdec::EncDecError::InvalidData)
+    };
 
     let mut wallet = match config.privkey_path.exists() {
         true => {

@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use anyhow::Result;
-use btc_wallet::{self, BtcWallet, Config};
+use btc_wallet::{self, BtcWallet, Config, Xpriv};
 use clap::{CommandFactory, Parser, Subcommand};
+use rust_wallet_utils::encdec;
 use tracing::*;
 
 #[derive(Parser)]
@@ -66,9 +67,13 @@ fn main() -> Result<()> {
         .inspect_err(|e| error!("load_config: {e}"))?;
     let passphrase = "SuperSecurePassword123!";
     let save_privkey = |xprv: &btc_wallet::Xpriv, config: &Config| {
-        btc_wallet::save_encoded_private_key(xprv, config, passphrase)
+        let xprv = xprv.to_string();
+        encdec::save_encoded_private_key(&xprv, &config.privkey_path, passphrase)
     };
-    let load_privkey = |config: &Config| btc_wallet::load_encoded_private_key(config, passphrase);
+    let load_privkey = |config: &Config| {
+        let priv_data = encdec::load_encoded_private_key(&config.privkey_path, passphrase)?;
+        Xpriv::from_str(&priv_data).map_err(|_e| encdec::EncDecError::InvalidData)
+    };
 
     match cli.command {
         None => {
