@@ -13,7 +13,7 @@ use tracing::*;
 use crate::{
     backend::{BackendError, BackendRpc, BackendSourceError},
     config::ElectrumConfig,
-    err_log,
+    log_err, log_err_wp,
 };
 
 pub struct ElectrumRpc {
@@ -25,10 +25,13 @@ pub struct ElectrumRpc {
 impl ElectrumRpc {
     pub fn new(config: &ElectrumConfig) -> Result<ElectrumRpc, BackendError> {
         let client = electrum_client::Client::new(&config.server).map_err(|e| {
-            err_log!(BackendError::New {
-                err_info: format!("config.server={}", config.server),
-                source: BackendSourceError::Electrum(e),
-            })
+            log_err_wp!(
+                BackendError::New {
+                    source: BackendSourceError::Electrum(e),
+                },
+                "new",
+                server = config.server
+            )
         })?;
         let client = BdkElectrumClient::new(client);
         Ok(ElectrumRpc {
@@ -48,15 +51,16 @@ impl BackendRpc for ElectrumRpc {
             .client
             .full_scan(req, self.gap_limit, self.batch_size, false)
             .map_err(|e| {
-                err_log!(BackendError::FullScan {
-                    err_info: format!(
-                        "gap_limit={}, batch_size={}",
-                        self.gap_limit, self.batch_size
-                    ),
-                    source: BackendSourceError::Electrum(e),
-                })
+                log_err_wp!(
+                    BackendError::FullScan {
+                        source: BackendSourceError::Electrum(e),
+                    },
+                    "initial_scan",
+                    gap_limit = self.gap_limit,
+                    batch_size = self.batch_size
+                )
             })?;
-        debug!("full_scan done");
+        trace!("full_scan done");
         Ok(update)
     }
 
@@ -65,31 +69,40 @@ impl BackendRpc for ElectrumRpc {
         req: SyncRequestBuilder<(KeychainKind, u32)>,
     ) -> Result<SyncResponse, BackendError> {
         let update = self.client.sync(req, self.batch_size, false).map_err(|e| {
-            err_log!(BackendError::Sync {
-                err_info: format!("batch_size={}", self.batch_size),
-                source: BackendSourceError::Electrum(e),
-            })
+            log_err_wp!(
+                BackendError::Sync {
+                    source: BackendSourceError::Electrum(e),
+                },
+                "sync",
+                batch_size = self.batch_size
+            )
         })?;
-        debug!("sync done");
+        trace!("sync done");
         Ok(update)
     }
 
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError> {
         self.client.fetch_tx(txid).map_err(|e| {
-            err_log!(BackendError::GetTx {
-                txid,
-                source: BackendSourceError::Electrum(e),
-            })
+            log_err!(
+                BackendError::GetTx {
+                    txid,
+                    source: BackendSourceError::Electrum(e),
+                },
+                "fetch_tx"
+            )
         })
     }
 
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError> {
         self.client.transaction_broadcast(tx).map_err(|e| {
-            err_log!(BackendError::SendTx {
-                inputs: tx.input.len(),
-                outputs: tx.output.len(),
-                source: BackendSourceError::Electrum(e),
-            })
+            log_err!(
+                BackendError::SendTx {
+                    inputs: tx.input.len(),
+                    outputs: tx.output.len(),
+                    source: BackendSourceError::Electrum(e),
+                },
+                "send_tx"
+            )
         })
     }
 }

@@ -9,7 +9,7 @@ use tracing::*;
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 fn main() -> Result<()> {
-    let filter = EnvFilter::builder().parse_lossy("warn,btc_wallet=off");
+    let filter = EnvFilter::builder().parse_lossy("debug,btc_wallet=trace");
     tracing_subscriber::Registry::default()
         .with(
             tracing_subscriber::fmt::layer()
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
             BtcWallet::create(config, save_privkey)
         }
     }
-    .inspect_err(|e| error!("Fail wallet instance creation: {e}"))?;
+    .inspect_err(|e| error!(Err=?e, "Fail wallet instance creation"))?;
     debug!("wallet created/loaded: {}", wallet.config.network);
 
     let addr1 = wallet.new_address();
