@@ -188,9 +188,7 @@ impl Wallet {
     }
 
     pub fn new_address(&mut self) -> Address {
-        let addr_info = self
-            .wallet
-            .reveal_next_address(bdk_wallet::KeychainKind::External);
+        let addr_info = self.wallet.reveal_next_address(KeychainKind::External);
         debug!(
             "new_address: {}, index={}",
             addr_info.address, addr_info.index
@@ -199,14 +197,16 @@ impl Wallet {
     }
 
     pub fn get_address(&self, index: u32) -> Address {
-        let addr_info = self
-            .wallet
-            .peek_address(bdk_wallet::KeychainKind::External, index);
+        let addr_info = self.wallet.peek_address(KeychainKind::External, index);
         debug!(
             "get_address: {}, index={}",
             addr_info.address, addr_info.index
         );
         addr_info.address
+    }
+
+    pub fn derived_address_index(&self) -> Option<u32> {
+        self.wallet.derivation_index(KeychainKind::External)
     }
 
     pub fn create_tx(

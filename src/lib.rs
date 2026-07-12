@@ -206,6 +206,12 @@ impl BtcWallet {
         self.wallet.get_address(index)
     }
 
+    /// 最後に公開されたインデックスを取得する。未使用の場合はNoneを返す。
+    /// get_address()を使用する際の参考にするとよい。
+    pub fn derived_address_index(&self) -> Option<u32> {
+        self.wallet.derived_address_index()
+    }
+
     /// アドレス文字列をAddress型に変換する。
     pub fn parse_address(&self, addr_str: &str) -> Result<Address, Error> {
         let addr: Address<NetworkUnchecked> = addr_str.parse().map_err(|e| {
