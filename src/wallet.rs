@@ -68,7 +68,7 @@ pub enum WalletError {
 }
 
 pub struct Wallet {
-    wallet: PersistedWallet<Connection>,
+    pub(crate) wallet: PersistedWallet<Connection>,
     conn: Connection,
 }
 
