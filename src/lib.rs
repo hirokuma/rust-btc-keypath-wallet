@@ -1,6 +1,8 @@
 mod backend;
 mod config;
 mod electrum;
+pub mod htlc;
+pub mod taproot;
 mod wallet;
 
 pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
