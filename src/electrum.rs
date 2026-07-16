@@ -30,8 +30,8 @@ impl ElectrumRpc {
                     server: config.server.clone(),
                     source: BackendSourceError::Electrum(e),
                 },
-                "new",
-                server = config.server
+                "new: server={}",
+                config.server
             )
         })?;
         let client = BdkElectrumClient::new(client);
@@ -56,9 +56,9 @@ impl BackendRpc for ElectrumRpc {
                     BackendError::FullScan {
                         source: BackendSourceError::Electrum(e),
                     },
-                    "initial_scan",
-                    gap_limit = self.gap_limit,
-                    batch_size = self.batch_size
+                    "initial_scan: gap_limit = {}, batch_size = {}",
+                    self.gap_limit,
+                    self.batch_size
                 )
             })?;
         trace!("full_scan done");
@@ -74,8 +74,8 @@ impl BackendRpc for ElectrumRpc {
                 BackendError::Sync {
                     source: BackendSourceError::Electrum(e),
                 },
-                "sync",
-                batch_size = self.batch_size
+                "sync: batch_size={}",
+                self.batch_size
             )
         })?;
         trace!("sync done");
