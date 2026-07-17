@@ -93,7 +93,7 @@ fn main() -> Result<()> {
         Some(Commands::NewAddr) => {
             let mut wallet =
                 BtcWallet::load(config, load_privkey).inspect_err(|e| error!("load: {e}"))?;
-            let new_addr = wallet.new_address();
+            let new_addr = wallet.new_address()?;
             println!("new address: {}", new_addr);
         }
         Some(Commands::Tx { tx_hex }) => {

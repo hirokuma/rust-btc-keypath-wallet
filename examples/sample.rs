@@ -49,11 +49,11 @@ fn main() -> Result<()> {
     .inspect_err(|e| error!(Err=?e, "Fail wallet instance creation"))?;
     debug!("wallet created/loaded: {}", wallet.config.network);
 
-    let addr1 = wallet.new_address();
+    let addr1 = wallet.new_address()?;
     println!("Send 1 BTC to {}", addr1);
     update_balances(&mut wallet);
 
-    let addr2 = wallet.new_address();
+    let addr2 = wallet.new_address()?;
     let tx_send = wallet.create_tx_single_anypay(&addr2, 100_000_000 - 160, 1.0)?;
 
     debug!("tx_send: {:#?}", tx_send);

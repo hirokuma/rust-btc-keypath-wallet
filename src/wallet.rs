@@ -1,8 +1,8 @@
 use std::{path::PathBuf, result::Result};
 
 use bdk_wallet::{
-    Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
-    SignOptions, Update, Wallet as BdkWallet,
+    AddressInfo, Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError,
+    PersistedWallet, SignOptions, Update, Wallet as BdkWallet,
     bitcoin::{
         self, Address, Amount, FeeRate, NetworkKind, Transaction,
         bip32::{self, Xpriv},
@@ -45,6 +45,12 @@ pub enum WalletError {
         source: rusqlite::Error,
     },
 
+    #[error("persist error")]
+    Persist(#[source] rusqlite::Error),
+
+    #[error("{0}")]
+    ApplyUpdate(#[source] CannotConnectError),
+
     #[error("generate descriptor error")]
     Descriptor(#[source] DescriptorError),
 
@@ -81,12 +87,16 @@ impl Wallet {
         self.wallet.start_sync_with_revealed_spks()
     }
 
-    pub fn apply_update(&mut self, update: impl Into<Update>) -> Result<(), CannotConnectError> {
-        self.wallet.apply_update(update)
+    pub fn apply_update(&mut self, update: impl Into<Update>) -> Result<(), WalletError> {
+        self.wallet
+            .apply_update(update)
+            .map_err(|e| log_err!(WalletError::ApplyUpdate(e), "apply_update"))
     }
 
-    pub fn persist(&mut self) {
-        let _ = self.wallet.persist(&mut self.conn);
+    pub fn persist(&mut self) -> Result<bool, WalletError> {
+        self.wallet
+            .persist(&mut self.conn)
+            .map_err(|e| log_err!(WalletError::Persist(e), "persist"))
     }
 }
 
@@ -187,22 +197,12 @@ impl Wallet {
         self.wallet.balance()
     }
 
-    pub fn new_address(&mut self) -> Address {
-        let addr_info = self.wallet.reveal_next_address(KeychainKind::External);
-        debug!(
-            "new_address: {}, index={}",
-            addr_info.address, addr_info.index
-        );
-        addr_info.address
+    pub fn new_address_info(&mut self) -> AddressInfo {
+        self.wallet.reveal_next_address(KeychainKind::External)
     }
 
-    pub fn get_address(&self, index: u32) -> Address {
-        let addr_info = self.wallet.peek_address(KeychainKind::External, index);
-        debug!(
-            "get_address: {}, index={}",
-            addr_info.address, addr_info.index
-        );
-        addr_info.address
+    pub fn get_address_info(&self, index: u32) -> AddressInfo {
+        self.wallet.peek_address(KeychainKind::External, index)
     }
 
     pub fn derived_address_index(&self) -> Option<u32> {

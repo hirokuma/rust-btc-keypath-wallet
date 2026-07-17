@@ -71,7 +71,7 @@ pub fn xonly_pubkey_from_str(hex_str: &str) -> Result<XOnlyPublicKey, TapError> 
     XOnlyPublicKey::from_slice(&bytes).map_err(|e| log_err!(TapError::Secp(e), "xonly_pubkey"))
 }
 
-pub fn xonly_pubkey_from_addrinfo(
+pub fn convert_xonly_pubkey(
     wallet: &Wallet,
     addr_info: &AddressInfo,
 ) -> Result<XOnlyPublicKey, TapError> {

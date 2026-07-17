@@ -2,22 +2,20 @@ mod backend;
 mod config;
 mod electrum;
 pub mod htlc;
-pub mod taproot;
+mod taproot;
 mod wallet;
 
-pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
-pub use bdk_wallet::{self, Balance, miniscript};
-use bdk_wallet::{
-    bitcoin::{
-        self, FeeRate,
-        address::{NetworkUnchecked, ParseError},
-        bip32,
-        consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
-        hex::HexToArrayError,
-        key::rand::{self, RngCore},
-    },
-    chain::local_chain::CannotConnectError,
+use bdk_wallet::bitcoin::XOnlyPublicKey;
+use bdk_wallet::bitcoin::{
+    self, FeeRate,
+    address::{NetworkUnchecked, ParseError},
+    bip32,
+    consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+    hex::HexToArrayError,
+    key::rand::{self, RngCore},
 };
+pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
+pub use bdk_wallet::{self, AddressInfo, Balance, miniscript};
 use std::str::FromStr;
 use std::{
     path::{Path, PathBuf},
@@ -28,6 +26,7 @@ use tracing::*;
 use wallet_utils::{encdec, log_err};
 
 pub use crate::config::{Backend, Config, ElectrumConfig};
+use crate::taproot::TapError;
 use crate::{
     backend::{BackendError, BackendRpc},
     config::ConfigError,
@@ -43,7 +42,7 @@ pub enum Error {
     Backend(#[source] BackendError),
 
     #[error("{0}")]
-    CannotConnect(#[source] CannotConnectError),
+    Tap(#[from] TapError),
 
     #[error("{0}")]
     Wallet(#[source] Box<WalletError>),
@@ -125,7 +124,7 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "create wallet"))?;
         wallet
             .apply_update(update)
-            .map_err(|e| log_err!(Error::CannotConnect(e), "create wallet"))?;
+            .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "create wallet"))?;
 
         debug!("create done");
         Ok(Self {
@@ -169,7 +168,7 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "load wallet"))?;
         wallet
             .apply_update(update)
-            .map_err(|e| log_err!(Error::CannotConnect(e), "load wallet"))?;
+            .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "load wallet"))?;
 
         debug!("load done");
         Ok(Self {
@@ -190,7 +189,7 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "sync"))?;
         self.wallet
             .apply_update(update)
-            .map_err(|e| log_err!(Error::CannotConnect(e), "sync"))
+            .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "sync"))
     }
 
     /// 残高取得
@@ -199,13 +198,23 @@ impl BtcWallet {
     }
 
     /// 新規アドレスを返す。HDウォレットのインデックスを更新する。
-    pub fn new_address(&mut self) -> Address {
-        self.wallet.new_address()
+    pub fn new_address(&mut self) -> Result<Address, Error> {
+        let ai = self.wallet.new_address_info();
+        self.wallet
+            .persist()
+            .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "new_address"))?;
+        debug!("new_address: {}, index={}", ai.address, ai.index);
+        Ok(ai.address)
     }
 
-    /// インデックスに該当するアドレスを返す。
+    /// インデックスに該当するAddressInfoを返す
+    pub fn get_address_info(&self, index: u32) -> AddressInfo {
+        self.wallet.get_address_info(index)
+    }
+
+    /// インデックスに該当するアドレスを返す
     pub fn get_address(&self, index: u32) -> Address {
-        self.wallet.get_address(index)
+        self.wallet.get_address_info(index).address
     }
 
     /// 最後に公開されたインデックスを取得する。未使用の場合はNoneを返す。
@@ -214,7 +223,7 @@ impl BtcWallet {
         self.wallet.derived_address_index()
     }
 
-    /// アドレス文字列をAddress型に変換する。
+    /// アドレス文字列をAddress型に変換する
     pub fn parse_address(&self, addr_str: &str) -> Result<Address, Error> {
         let addr: Address<NetworkUnchecked> = addr_str.parse().map_err(|e| {
             log_err!(
@@ -234,6 +243,14 @@ impl BtcWallet {
                 "parse_address"
             )
         })
+    }
+
+    /// AddressInfoをXOnlyPublicKeyに変換する
+    pub fn convert_xonly_pubkey(&self, addr_info: &AddressInfo) -> Result<XOnlyPublicKey, Error> {
+        Ok(taproot::convert_xonly_pubkey(
+            &self.wallet.wallet,
+            addr_info,
+        )?)
     }
 
     /// TXIDに該当するトランザクションを取得する。
@@ -320,6 +337,10 @@ impl BtcWallet {
             .send_tx(tx)
             .map_err(|e| log_err!(Error::Backend(e), "send_tx"))
     }
+}
+
+pub fn xonly_pubkey_from_str(hex_str: &str) -> Result<XOnlyPublicKey, Error> {
+    Ok(taproot::xonly_pubkey_from_str(hex_str)?)
 }
 
 #[cfg(test)]
