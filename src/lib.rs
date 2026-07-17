@@ -1,37 +1,63 @@
 mod backend;
 mod config;
 mod electrum;
-pub mod htlc;
+mod htlc;
 mod taproot;
 mod wallet;
 
-use bdk_wallet::bitcoin::XOnlyPublicKey;
-use bdk_wallet::bitcoin::{
-    self, FeeRate,
-    address::{NetworkUnchecked, ParseError},
-    bip32,
-    consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
-    hex::HexToArrayError,
-    key::rand::{self, RngCore},
-};
-pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
-pub use bdk_wallet::{self, AddressInfo, Balance, miniscript};
+// std
 use std::str::FromStr;
 use std::{
     path::{Path, PathBuf},
     result::Result,
     sync::Arc,
 };
+
+// pub use
+pub use crate::{
+    config::{Backend, Config, ElectrumConfig},
+    htlc::Htlc,
+};
+use bdk_wallet::bitcoin::OutPoint;
+pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
+pub use bdk_wallet::{self, AddressInfo, Balance, miniscript};
+
+// use
+use bdk_wallet::bitcoin::{
+    self, FeeRate, XOnlyPublicKey,
+    address::NetworkUnchecked,
+    bip32,
+    consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
+    hashes::sha256,
+    hex::HexToArrayError,
+    key::rand::{self, RngCore},
+};
 use tracing::*;
 use wallet_utils::{encdec, log_err};
 
-pub use crate::config::{Backend, Config, ElectrumConfig};
-use crate::taproot::TapError;
+// use crate
 use crate::{
     backend::{BackendError, BackendRpc},
     config::ConfigError,
+    htlc::HtlcError,
+    taproot::TapError,
     wallet::{Wallet, WalletError},
 };
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseError {
+    #[error("ParseError: {0}")]
+    AddressParse(#[from] bdk_wallet::bitcoin::address::ParseError),
+
+    #[error("ParseOutPointError: {0}")]
+    ParseOutPoint(#[from] bitcoin::blockdata::transaction::ParseOutPointError),
+
+    #[error("HexToArrayError: {0}")]
+    HexConvert(#[source] HexToArrayError),
+
+    #[error("tx conversion error")]
+    FromHex(#[source] FromHexError),
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -45,28 +71,13 @@ pub enum Error {
     Tap(#[from] TapError),
 
     #[error("{0}")]
+    Htlc(#[source] HtlcError),
+
+    #[error("{0}")]
     Wallet(#[source] Box<WalletError>),
 
-    #[error("tx conversion error")]
-    TxConvert {
-        tx_hex: String,
-        #[source]
-        source: FromHexError,
-    },
-
-    #[error("TXID conversion error")]
-    TxidConvert {
-        txid_hex: String,
-        #[source]
-        source: HexToArrayError,
-    },
-
     #[error("parse error")]
-    Parse {
-        str: String,
-        #[source]
-        source: ParseError,
-    },
+    Parse(#[source] ParseError),
 
     #[error("BIP32 error: {0}")]
     Bip32(#[source] bip32::Error),
@@ -177,6 +188,10 @@ impl BtcWallet {
             wallet,
         })
     }
+
+    pub fn inner_wallet(&self) -> &wallet::InnerWallet {
+        &self.wallet.wallet
+    }
 }
 
 impl BtcWallet {
@@ -227,27 +242,26 @@ impl BtcWallet {
     pub fn parse_address(&self, addr_str: &str) -> Result<Address, Error> {
         let addr: Address<NetworkUnchecked> = addr_str.parse().map_err(|e| {
             log_err!(
-                Error::Parse {
-                    str: addr_str.to_string(),
-                    source: e,
-                },
-                "parse_address"
+                Error::Parse(ParseError::AddressParse(e)),
+                "parse_address: {}",
+                addr_str,
             )
         })?;
         addr.require_network(self.config.network).map_err(|e| {
             log_err!(
-                Error::Parse {
-                    str: self.config.network.to_string(),
-                    source: e,
-                },
-                "parse_address"
+                Error::Parse(ParseError::AddressParse(e)),
+                "require_network: {}",
+                self.config.network,
             )
         })
     }
 
     /// AddressInfoをXOnlyPublicKeyに変換する
-    pub fn convert_xonly_pubkey(&self, addr_info: &AddressInfo) -> Result<XOnlyPublicKey, Error> {
-        Ok(taproot::convert_xonly_pubkey(
+    pub fn conv_xonly_internal_pubkey(
+        &self,
+        addr_info: &AddressInfo,
+    ) -> Result<XOnlyPublicKey, Error> {
+        Ok(taproot::conv_xonly_internal_pubkey(
             &self.wallet.wallet,
             addr_info,
         )?)
@@ -263,11 +277,9 @@ impl BtcWallet {
     pub fn parse_txid_hex(&self, txid_hex: &str) -> Result<Txid, Error> {
         txid_hex.parse().map_err(|e| {
             log_err!(
-                Error::TxidConvert {
-                    txid_hex: txid_hex.to_string(),
-                    source: e,
-                },
-                "parse_txid"
+                Error::Parse(ParseError::HexConvert(e)),
+                "parse_txid: txid_str={}",
+                txid_hex,
             )
         })
     }
@@ -275,11 +287,9 @@ impl BtcWallet {
     pub fn parse_tx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {
         deserialize_hex(tx_hex).map_err(move |e| {
             log_err!(
-                Error::TxConvert {
-                    tx_hex: tx_hex.to_string(),
-                    source: e,
-                },
-                "parse_tx_hex"
+                Error::Parse(ParseError::FromHex(e)),
+                "parse_tx_hex: tx_hex={}",
+                tx_hex
             )
         })
     }
@@ -335,12 +345,58 @@ impl BtcWallet {
     pub fn send_tx(&self, tx: &Transaction) -> Result<Txid, Error> {
         self.rpc
             .send_tx(tx)
-            .map_err(|e| log_err!(Error::Backend(e), "send_tx"))
+            .map_err(|e| log_err!(Error::Backend(e), "send_tx: {:#?}", tx))
     }
 }
 
-pub fn xonly_pubkey_from_str(hex_str: &str) -> Result<XOnlyPublicKey, Error> {
-    Ok(taproot::xonly_pubkey_from_str(hex_str)?)
+pub fn htlc_new(
+    preimage_hash: sha256::Hash,
+    csv_blocks: u32,
+    claim_xonly_pubkey: XOnlyPublicKey,
+    refund_xonly_pubkey: XOnlyPublicKey,
+) -> Result<htlc::Htlc, Error> {
+    htlc::Htlc::new(
+        preimage_hash,
+        csv_blocks,
+        claim_xonly_pubkey,
+        refund_xonly_pubkey,
+    )
+    .map_err(|e| log_err!(Error::Htlc(e), "htlc_new"))
+}
+
+pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
+    let fee = (fee_rate * vsize as f64 + 0.5) as u64;
+    debug!("fee_rate = {}", fee_rate);
+    debug!("fee = {}", fee);
+    Amount::from_sat(fee)
+}
+
+pub fn generate_preimage() -> ([u8; 32], sha256::Hash) {
+    htlc::generate_preimage()
+}
+
+pub fn to_sha256(hash_str: &str) -> Result<sha256::Hash, Error> {
+    sha256::Hash::from_str(hash_str).map_err(|e| {
+        log_err!(
+            Error::Parse(ParseError::HexConvert(e)),
+            "to_sha256: hash_str={}",
+            hash_str,
+        )
+    })
+}
+
+pub fn to_outpoint(outpoint: &str) -> Result<OutPoint, Error> {
+    outpoint.parse().map_err(|e| {
+        log_err!(
+            Error::Parse(ParseError::ParseOutPoint(e)),
+            "to_outpoint: {}",
+            outpoint
+        )
+    })
+}
+
+pub fn to_xonly_pubkey(bytes: &[u8; 32]) -> Result<XOnlyPublicKey, TapError> {
+    XOnlyPublicKey::from_slice(bytes).map_err(|e| log_err!(TapError::Secp(e), "xonly_pubkey"))
 }
 
 #[cfg(test)]

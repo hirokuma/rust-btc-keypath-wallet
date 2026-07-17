@@ -1,7 +1,7 @@
 use bdk_wallet::{
-    AddressInfo, KeychainKind, Wallet,
+    AddressInfo, KeychainKind, Wallet as BdkWallet,
     bitcoin::{
-        Amount, ScriptBuf, TapLeafHash, TapSighashType, Transaction, TxOut,
+        ScriptBuf, TapLeafHash, TapSighashType, Transaction, TxOut,
         bip32::{ChildNumber, DerivationPath, Error as Bip32Error},
         hashes::Hash,
         key::Keypair,
@@ -43,6 +43,9 @@ pub enum TapError {
 
     #[error("sign error")]
     Sign,
+
+    #[error("{0}")]
+    Error(String),
 }
 
 // pick as internal key a "Nothing Up My Sleeve" (NUMS) point
@@ -59,20 +62,8 @@ pub struct TaprootSpendData {
     pub leaf_hash: TapLeafHash,
 }
 
-pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
-    let fee = (fee_rate * vsize as f64 + 0.5) as u64;
-    debug!("fee_rate = {}", fee_rate);
-    debug!("fee = {}", fee);
-    Amount::from_sat(fee)
-}
-
-pub fn xonly_pubkey_from_str(hex_str: &str) -> Result<XOnlyPublicKey, TapError> {
-    let bytes = hex::decode(hex_str).map_err(|e| log_err!(TapError::FromHex(e), "xonly_pubkey"))?;
-    XOnlyPublicKey::from_slice(&bytes).map_err(|e| log_err!(TapError::Secp(e), "xonly_pubkey"))
-}
-
-pub fn convert_xonly_pubkey(
-    wallet: &Wallet,
+pub fn conv_xonly_internal_pubkey(
+    wallet: &BdkWallet,
     addr_info: &AddressInfo,
 ) -> Result<XOnlyPublicKey, TapError> {
     let xonly: XOnlyPublicKey = {
@@ -127,7 +118,7 @@ pub fn build_taproot_leaf_spend_data(
 }
 
 pub fn sign_taproot_script_spend(
-    wallet: &Wallet,
+    wallet: &BdkWallet,
     is_dummy: bool,
     addr_index: u32,
     spend_tx: &Transaction,
@@ -163,7 +154,7 @@ pub fn sign_taproot_script_spend(
 }
 
 pub fn sign_schnorr(
-    wallet: &Wallet,
+    wallet: &BdkWallet,
     addr_index: u32,
     msg: &Message,
 ) -> Result<Signature, TapError> {

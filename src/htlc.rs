@@ -1,23 +1,20 @@
 use std::{collections::BTreeMap, result::Result};
 
 use bdk_wallet::{
-    Wallet,
+    Wallet as BdkWallet,
     bitcoin::{
         Address, Amount, Network, OutPoint, PublicKey, ScriptBuf, Sequence, TapLeafHash,
         Transaction, TxIn, TxOut, Witness, absolute,
         bip32::Error as Bip32Error,
         hashes::{Hash, sha256},
-        key::{
-            Secp256k1,
-            rand::{self, RngCore},
-        },
+        key::rand::{self, RngCore},
         relative::LockTime,
-        secp256k1::{self, All as Secp256k1All, Parity, XOnlyPublicKey},
+        secp256k1::{self, Parity, XOnlyPublicKey},
         sighash::TaprootError,
         taproot::{ControlBlock, LeafVersion, Signature as TaprootSig},
         transaction,
     },
-    descriptor::DescriptorError,
+    descriptor,
     keys::DescriptorPublicKey,
     miniscript::{
         DefiniteDescriptorKey, Descriptor, Error as MiniscriptError, Preimage32, Satisfier,
@@ -31,11 +28,8 @@ use tracing::*;
 use wallet_utils::log_err;
 
 use crate::{
-    BtcWallet,
-    taproot::{
-        NUMS_XPUBKEY, TapError, build_taproot_leaf_spend_data, fee_from_rate,
-        sign_taproot_script_spend,
-    },
+    fee_from_rate,
+    taproot::{NUMS_XPUBKEY, TapError, build_taproot_leaf_spend_data, sign_taproot_script_spend},
 };
 
 #[derive(Error, Debug)]
@@ -50,7 +44,7 @@ pub enum HtlcError {
     Conversion(#[source] ConversionError),
 
     #[error("{0}")]
-    Descriptor(#[source] DescriptorError),
+    Descriptor(#[source] descriptor::DescriptorError),
 
     #[error("{0}")]
     DescriptorKeyParse(#[source] DescriptorKeyParseError),
@@ -105,28 +99,22 @@ impl Satisfier<PublicKey> for HtlcSatisfier {
     }
 }
 
-pub struct Htlc<'a> {
+#[derive(Debug, Clone)]
+pub struct Htlc {
     pub preimage_hash: sha256::Hash,
     pub csv_blocks: u32,
 
-    wallet: &'a Wallet,
-    secp: &'a Secp256k1<Secp256k1All>,
     claim_xonly_pubkey: XOnlyPublicKey,
     refund_xonly_pubkey: XOnlyPublicKey,
 
-    claim_addr_index: u32,
-    refund_addr_index: u32,
     derived: Descriptor<DefiniteDescriptorKey>,
 }
 
-impl<'a> Htlc<'a> {
+impl Htlc {
     pub fn new(
-        wallet: &'a BtcWallet,
         preimage_hash: sha256::Hash,
         csv_blocks: u32,
-        claim_addr_index: u32,
         claim_xonly_pubkey: XOnlyPublicKey,
-        refund_addr_index: u32,
         refund_xonly_pubkey: XOnlyPublicKey,
     ) -> Result<Self, HtlcError> {
         let desc = generate_htlc_descriptor(
@@ -139,13 +127,9 @@ impl<'a> Htlc<'a> {
             .at_derivation_index(0)
             .map_err(|e| log_err!(HtlcError::Conversion(e), "new"))?;
         Ok(Self {
-            wallet: &wallet.wallet.wallet,
-            secp: wallet.wallet.wallet.secp_ctx(),
             preimage_hash,
             csv_blocks,
-            claim_addr_index,
             claim_xonly_pubkey,
-            refund_addr_index,
             refund_xonly_pubkey,
             derived,
         })
@@ -157,12 +141,15 @@ impl<'a> Htlc<'a> {
             .map_err(|e| log_err!(HtlcError::Miniscript(e), "address"))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_claim_tx(
         &self,
+        wallet: &BdkWallet,
         prev_outpoint: OutPoint,
         prev_txout: &TxOut,
         vin_index: usize,
         preimage: [u8; 32],
+        claim_addr_index: u32,
         fee_rate: f64,
     ) -> Result<Transaction, HtlcError> {
         let mut spend_tx = Transaction {
@@ -176,17 +163,22 @@ impl<'a> Htlc<'a> {
             }],
             output: vec![transaction::TxOut {
                 value: Amount::ZERO, // fee計算後に設定
-                script_pubkey: ScriptBuf::new_p2tr(self.secp, self.claim_xonly_pubkey, None),
+                script_pubkey: ScriptBuf::new_p2tr(
+                    wallet.secp_ctx(),
+                    self.claim_xonly_pubkey,
+                    None,
+                ),
             }],
         };
 
         // dummy witness stack for calculate fee
         let witness = self.htlc_witness_stack(
+            wallet,
             true, // dummy
             &spend_tx,
             vin_index,
             prev_txout,
-            self.claim_addr_index,
+            claim_addr_index,
             self.claim_xonly_pubkey,
             Some(preimage),
             None,
@@ -198,11 +190,12 @@ impl<'a> Htlc<'a> {
         spend_tx.output[0].value = prev_txout.value - fee;
 
         let witness = self.htlc_witness_stack(
+            wallet,
             false,
             &spend_tx,
             vin_index,
             prev_txout,
-            self.claim_addr_index,
+            claim_addr_index,
             self.claim_xonly_pubkey,
             Some(preimage),
             None,
@@ -213,11 +206,14 @@ impl<'a> Htlc<'a> {
         Ok(spend_tx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_refund_tx(
         &self,
+        wallet: &BdkWallet,
         prev_outpoint: OutPoint,
         prev_txout: &TxOut,
         vin_index: usize,
+        refund_addr_index: u32,
         fee_rate: f64,
     ) -> Result<Transaction, HtlcError> {
         let mut spend_tx = Transaction {
@@ -231,16 +227,21 @@ impl<'a> Htlc<'a> {
             }],
             output: vec![transaction::TxOut {
                 value: Amount::ZERO, // fee計算後に設定
-                script_pubkey: ScriptBuf::new_p2tr(self.secp, self.refund_xonly_pubkey, None),
+                script_pubkey: ScriptBuf::new_p2tr(
+                    wallet.secp_ctx(),
+                    self.refund_xonly_pubkey,
+                    None,
+                ),
             }],
         };
 
         let witness = self.htlc_witness_stack(
+            wallet,
             true, // dummy
             &spend_tx,
             vin_index,
             prev_txout,
-            self.refund_addr_index,
+            refund_addr_index,
             self.refund_xonly_pubkey,
             None,
             Some(spend_tx.input[vin_index].sequence.to_consensus_u32()),
@@ -248,15 +249,16 @@ impl<'a> Htlc<'a> {
         )?;
         spend_tx.input[vin_index].witness = Witness::from_slice(&witness);
 
-        let fee = fee_from_rate(fee_rate, spend_tx.vsize());
+        let fee = crate::fee_from_rate(fee_rate, spend_tx.vsize());
         spend_tx.output[0].value = prev_txout.value - fee;
 
         let witness = self.htlc_witness_stack(
+            wallet,
             false,
             &spend_tx,
             vin_index,
             prev_txout,
-            self.refund_addr_index,
+            refund_addr_index,
             self.refund_xonly_pubkey,
             None,
             Some(spend_tx.input[vin_index].sequence.to_consensus_u32()),
@@ -270,6 +272,7 @@ impl<'a> Htlc<'a> {
     #[allow(clippy::too_many_arguments)]
     fn htlc_witness_stack(
         &self,
+        wallet: &BdkWallet,
         is_dummy: bool,
         spend_tx: &Transaction,
         vin_index: usize,
@@ -290,7 +293,7 @@ impl<'a> Htlc<'a> {
 
         let spend_data = build_taproot_leaf_spend_data(&self.derived, xonly_pubkey, leaf_name)?;
         let taproot_sig = sign_taproot_script_spend(
-            self.wallet,
+            wallet,
             is_dummy,
             addr_index,
             spend_tx,
@@ -319,7 +322,7 @@ impl<'a> Htlc<'a> {
 
         let htlc_definite = self
             .derived
-            .derived_descriptor(self.secp)
+            .derived_descriptor(wallet.secp_ctx())
             .map_err(|e| log_err!(HtlcError::Conversion(e), "witness_stack"))?;
         let (witness_stack, _script_sig) = htlc_definite
             .get_satisfaction(satisfier)

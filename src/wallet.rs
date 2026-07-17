@@ -22,6 +22,8 @@ use tracing::*;
 
 use crate::{config::Config, log_err};
 
+pub type InnerWallet = PersistedWallet<Connection>;
+
 #[derive(thiserror::Error, Debug)]
 pub enum WalletError {
     #[error("create wallet error")]
@@ -74,7 +76,7 @@ pub enum WalletError {
 }
 
 pub struct Wallet {
-    pub(crate) wallet: PersistedWallet<Connection>,
+    pub(crate) wallet: InnerWallet,
     conn: Connection,
 }
 
