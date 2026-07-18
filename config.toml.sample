@@ -1,6 +1,6 @@
-wallet_fname = "mywallet.bdk"
+wallet_path = "sample-wallet.bdk"
 # Optional: if not specified, the caller is responsible for saving/loading the private key
-privkey_fname = "myprivkey.txt"
+privkey_path = "sample-privkey.txt"
 network = "regtest"
 backend = "electrum"
 
