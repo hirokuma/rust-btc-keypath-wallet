@@ -75,10 +75,13 @@ pub trait BackendRpc: Send + Sync {
         req: SyncRequestBuilder<(KeychainKind, u32)>,
     ) -> Result<SyncResponse, BackendError>;
 
+    /// Get current block height
+    fn get_current_height(&self) -> Result<u32, BackendError>;
+
     /// Get the transaction
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError>;
 
-    fn find_txs(
+    fn fetch_script_history(
         &self,
         addr: &Address,
         last_height: u32,

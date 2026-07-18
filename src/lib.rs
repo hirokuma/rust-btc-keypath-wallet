@@ -268,6 +268,12 @@ impl BtcWallet {
         )?)
     }
 
+    pub fn get_current_height(&self) -> Result<u32, Error> {
+        self.rpc
+            .get_current_height()
+            .map_err(|e| log_err!(Error::Backend(e), "get_current_height"))
+    }
+
     /// TXIDに該当するトランザクションを取得する。
     pub fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, Error> {
         self.rpc
@@ -349,14 +355,14 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "send_tx: {:#?}", tx))
     }
 
-    pub fn find_txs(
+    pub fn fetch_script_history(
         &self,
         addr: &Address,
         last_height: u32,
         only_confirmed: bool,
     ) -> Result<Vec<ScriptHistory>, Error> {
         self.rpc
-            .find_txs(addr, last_height, only_confirmed)
+            .fetch_script_history(addr, last_height, only_confirmed)
             .map_err(|e| log_err!(Error::Backend(e), "find_txs: {}", addr))
     }
 }

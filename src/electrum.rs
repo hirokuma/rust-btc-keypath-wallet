@@ -80,6 +80,20 @@ impl BackendRpc for ElectrumRpc {
         Ok(update)
     }
 
+    fn get_current_height(&self) -> Result<u32, BackendError> {
+        Ok(self
+            .client
+            .inner
+            .block_headers_subscribe()
+            .map_err(|e| {
+                log_err!(
+                    BackendError::FullScan(BackendSourceError::Electrum(Box::new(e))),
+                    "get_current_height"
+                )
+            })?
+            .height as u32)
+    }
+
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError> {
         self.client.fetch_tx(txid).map_err(|e| {
             log_err!(
@@ -92,7 +106,7 @@ impl BackendRpc for ElectrumRpc {
         })
     }
 
-    fn find_txs(
+    fn fetch_script_history(
         &self,
         addr: &Address,
         last_height: u32,
