@@ -1,9 +1,12 @@
 use std::{result::Result, sync::Arc};
 
-use bdk_electrum::{BdkElectrumClient, electrum_client};
+use bdk_electrum::{
+    BdkElectrumClient,
+    electrum_client::{self, ElectrumApi},
+};
 use bdk_wallet::{
     KeychainKind,
-    bitcoin::{Transaction, Txid},
+    bitcoin::{Address, Transaction, Txid},
     chain::spk_client::{
         FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
     },
@@ -11,7 +14,7 @@ use bdk_wallet::{
 use tracing::*;
 
 use crate::{
-    backend::{BackendError, BackendRpc, BackendSourceError},
+    backend::{BackendError, BackendRpc, BackendSourceError, ScriptHistory},
     config::ElectrumConfig,
     log_err,
 };
@@ -28,10 +31,9 @@ impl ElectrumRpc {
             log_err!(
                 BackendError::NewClient {
                     server: config.server.clone(),
-                    source: BackendSourceError::Electrum(e),
+                    source: BackendSourceError::Electrum(Box::new(e)),
                 },
-                "new: server={}",
-                config.server
+                "new",
             )
         })?;
         let client = BdkElectrumClient::new(client);
@@ -53,9 +55,7 @@ impl BackendRpc for ElectrumRpc {
             .full_scan(req, self.gap_limit, self.batch_size, false)
             .map_err(|e| {
                 log_err!(
-                    BackendError::FullScan {
-                        source: BackendSourceError::Electrum(e),
-                    },
+                    BackendError::FullScan(BackendSourceError::Electrum(Box::new(e))),
                     "initial_scan: gap_limit = {}, batch_size = {}",
                     self.gap_limit,
                     self.batch_size
@@ -71,9 +71,7 @@ impl BackendRpc for ElectrumRpc {
     ) -> Result<SyncResponse, BackendError> {
         let update = self.client.sync(req, self.batch_size, false).map_err(|e| {
             log_err!(
-                BackendError::Sync {
-                    source: BackendSourceError::Electrum(e),
-                },
+                BackendError::Sync(BackendSourceError::Electrum(Box::new(e))),
                 "sync: batch_size={}",
                 self.batch_size
             )
@@ -87,11 +85,47 @@ impl BackendRpc for ElectrumRpc {
             log_err!(
                 BackendError::GetTx {
                     txid,
-                    source: BackendSourceError::Electrum(e),
+                    source: BackendSourceError::Electrum(Box::new(e)),
                 },
                 "fetch_tx"
             )
         })
+    }
+
+    fn find_txs(
+        &self,
+        addr: &Address,
+        last_height: u32,
+        only_confirmed: bool,
+    ) -> Result<Vec<ScriptHistory>, BackendError> {
+        let script = addr.script_pubkey();
+        let history = self.client.inner.script_get_history(&script).map_err(|e| {
+            log_err!(
+                BackendError::FindTxs {
+                    addr: addr.clone(),
+                    source: BackendSourceError::Electrum(Box::new(e)),
+                },
+                "script_get_history"
+            )
+        })?;
+        let history: Vec<ScriptHistory> = history
+            .into_iter()
+            .filter(|h| {
+                if only_confirmed {
+                    h.height > 0 && h.height as u32 > last_height
+                } else {
+                    h.height <= 0 || h.height as u32 > last_height
+                }
+            })
+            .map(|h| {
+                let height = if h.height > 0 { h.height as u32 } else { 0 };
+                ScriptHistory {
+                    txid: h.tx_hash,
+                    height,
+                }
+            })
+            .collect();
+        Ok(history)
     }
 
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError> {
@@ -100,7 +134,7 @@ impl BackendRpc for ElectrumRpc {
                 BackendError::SendTx {
                     inputs: tx.input.len(),
                     outputs: tx.output.len(),
-                    source: BackendSourceError::Electrum(e),
+                    source: BackendSourceError::Electrum(Box::new(e)),
                 },
                 "send_tx"
             )

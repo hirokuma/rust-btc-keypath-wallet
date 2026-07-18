@@ -24,6 +24,9 @@ pub enum ConfigError {
 
     #[error("no enabled backend")]
     NoBackend,
+
+    #[error("invalid parameter")]
+    InvalidParam,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -52,7 +55,7 @@ pub struct Config {
 }
 
 /// Electrum backend config
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ElectrumConfig {
     /// true: enable this backend
     #[serde(default)]
@@ -101,9 +104,30 @@ impl Config {
         })?;
         let data: Config =
             toml::from_str(&settings).map_err(|e| log_err!(ConfigError::Toml(e), "config"))?;
-        if !data.electrum.enabled {
-            return Err(ConfigError::NoBackend);
-        }
+        data.check()?;
         Ok(data)
     }
+
+    pub fn check(&self) -> Result<(), ConfigError> {
+        if !self.electrum.enabled {
+            return log_err!(Err(ConfigError::NoBackend), "check");
+        } else {
+            if !check_electrum(&self.electrum) {
+                return Err(ConfigError::InvalidParam);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn check_electrum(electrum: &ElectrumConfig) -> bool {
+    if electrum.batch_size == 0 {
+        error!("batch_size={}", electrum.batch_size);
+        return false;
+    }
+    if electrum.gap_limit == 0 {
+        error!("gap_limit={}", electrum.gap_limit);
+        return false;
+    }
+    true
 }

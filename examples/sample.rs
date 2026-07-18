@@ -9,7 +9,7 @@ use tracing_subscriber::{EnvFilter, prelude::*};
 use wallet_utils::encdec;
 
 fn main() -> Result<()> {
-    let filter = EnvFilter::builder().parse_lossy("debug,btc_wallet=trace");
+    let filter = EnvFilter::builder().parse_lossy("debug,btc_wallet=info");
     tracing_subscriber::Registry::default()
         .with(
             tracing_subscriber::fmt::layer()
@@ -27,9 +27,11 @@ fn main() -> Result<()> {
         electrum: btc_wallet::ElectrumConfig {
             enabled: true,
             server: "tcp://127.0.0.1:50001".to_string(),
-            ..Default::default()
+            batch_size: 10,
+            gap_limit: 20,
         },
     };
+    config.check()?;
 
     let passphrase = "SuperSecurePassword123!";
     let save_privkey =
@@ -52,6 +54,9 @@ fn main() -> Result<()> {
     let addr1 = wallet.new_address()?;
     println!("Send 1 BTC to {}", addr1);
     update_balances(&mut wallet);
+
+    let txs = wallet.find_txs(&addr1, 0, false)?;
+    println!("txs({}):\n{:?}", addr1, txs);
 
     let addr2 = wallet.new_address()?;
     let tx_send = wallet.create_tx_single_anypay(&addr2, 100_000_000 - 160, 1.0)?;

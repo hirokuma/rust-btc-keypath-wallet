@@ -13,6 +13,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::backend::ScriptHistory;
 // pub use
 pub use crate::{
     config::{Backend, Config, ElectrumConfig},
@@ -346,6 +347,17 @@ impl BtcWallet {
         self.rpc
             .send_tx(tx)
             .map_err(|e| log_err!(Error::Backend(e), "send_tx: {:#?}", tx))
+    }
+
+    pub fn find_txs(
+        &self,
+        addr: &Address,
+        last_height: u32,
+        only_confirmed: bool,
+    ) -> Result<Vec<ScriptHistory>, Error> {
+        self.rpc
+            .find_txs(addr, last_height, only_confirmed)
+            .map_err(|e| log_err!(Error::Backend(e), "find_txs: {}", addr))
     }
 }
 
