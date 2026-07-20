@@ -12,15 +12,15 @@ bdk_electrum = "0.24.0"
 bdk_wallet = {version = "3.1.0", features = ["rusqlite"]}
 chacha20poly1305 = "0.11.0"
 hex = "0.4.3"
-serde = {version = "1.0.228", features = ["derive"]}
+serde = {version = "1.0.229", features = ["derive"]}
 tempfile = "3.27.0"
-thiserror = "2.0.18"
+thiserror = "2.0.19"
 toml = "1.1.3"
 tracing = "0.1.44"
 wincode = {version = "0.6.0", features = ["derive"]}
 zeroize = "1.9.0"
 
 [dev-dependencies]
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 clap = {version = "4.6.1", features = ["derive"]}
 tracing-subscriber = {version = "0.3.23", features = ["env-filter"]}
