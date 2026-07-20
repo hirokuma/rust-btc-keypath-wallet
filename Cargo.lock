@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "btc_wallet"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "argon2",
