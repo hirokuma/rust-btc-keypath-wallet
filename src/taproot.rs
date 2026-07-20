@@ -2,14 +2,13 @@ use bdk_wallet::{
     AddressInfo, KeychainKind, Wallet as BdkWallet,
     bitcoin::{
         ScriptBuf, TapLeafHash, TapSighashType, Transaction, TxOut,
-        bip32::{ChildNumber, DerivationPath, Error as Bip32Error},
+        bip32::Error as Bip32Error,
         hashes::Hash,
         key::Keypair,
         secp256k1::{self, Message, XOnlyPublicKey, schnorr::Signature},
         sighash::{Prevouts, SighashCache, TaprootError},
         taproot::{ControlBlock, LeafVersion, Signature as TaprootSig},
     },
-    keys::DescriptorSecretKey,
     miniscript::{DefiniteDescriptorKey, Descriptor, descriptor::ConversionError},
 };
 use hex::FromHexError;
@@ -120,7 +119,7 @@ pub fn build_taproot_leaf_spend_data(
 pub fn sign_taproot_script_spend(
     wallet: &BdkWallet,
     is_dummy: bool,
-    addr_index: u32,
+    keypair: &Keypair,
     spend_tx: &Transaction,
     vin_index: usize,
     prev_txout: &TxOut,
@@ -144,43 +143,12 @@ pub fn sign_taproot_script_spend(
         )
         .map_err(|e| log_err!(TapError::Taproot(e), "taproot_script_spend_signature_hash"))?;
 
+    let secp = wallet.secp_ctx();
     let msg = Message::from_digest(sighash.to_byte_array());
-    let signature = sign_schnorr(wallet, addr_index, &msg)?;
+    let signature = secp.sign_schnorr(&msg, keypair);
 
     Ok(TaprootSig {
         signature,
         sighash_type: TapSighashType::Default,
     })
-}
-
-pub fn sign_schnorr(
-    wallet: &BdkWallet,
-    addr_index: u32,
-    msg: &Message,
-) -> Result<Signature, TapError> {
-    let signers = wallet.get_signers(KeychainKind::External);
-    let xprv = signers
-        .signers()
-        .iter()
-        .find_map(|&s| match s.descriptor_secret_key() {
-            Some(DescriptorSecretKey::XPrv(xprv)) => Some(xprv),
-            _ => None,
-        })
-        .ok_or_else(|| log_err!(TapError::Sign, "no secret key in wallet"))?;
-
-    let child = ChildNumber::from_normal_idx(addr_index)
-        .map_err(|e| log_err!(TapError::Bip32(e), "from_normal_idx"))?;
-    let mut path_vec: Vec<ChildNumber> = xprv.derivation_path.into_iter().copied().collect();
-    path_vec.push(child);
-    let full_path = DerivationPath::from(path_vec);
-
-    let secp = wallet.secp_ctx();
-    let sec_key = xprv
-        .xkey
-        .derive_priv(secp, &full_path)
-        .map_err(|e| log_err!(TapError::Bip32(e), "derive_priv"))?
-        .private_key;
-
-    let keypair = Keypair::from_secret_key(secp, &sec_key);
-    Ok(secp.sign_schnorr(msg, &keypair))
 }

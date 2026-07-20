@@ -5,23 +5,23 @@ mod htlc;
 mod taproot;
 mod wallet;
 
-// std
-use std::str::FromStr;
-use std::{
-    path::{Path, PathBuf},
-    result::Result,
-    sync::Arc,
-};
-
-use crate::backend::ScriptHistory;
 // pub use
 pub use crate::{
     config::{Backend, Config, ElectrumConfig},
     htlc::Htlc,
 };
-use bdk_wallet::bitcoin::OutPoint;
-pub use bdk_wallet::bitcoin::{Address, Amount, Network, Transaction, Txid, bip32::Xpriv};
-pub use bdk_wallet::{self, AddressInfo, Balance, miniscript};
+pub use bdk_wallet::bitcoin::{
+    Address, Amount, Network, OutPoint, Transaction, Txid, bip32::Xpriv, hashes::Hash, key::Keypair,
+};
+pub use bdk_wallet::{AddressInfo, Balance, miniscript, rusqlite};
+
+// use std
+use std::{
+    path::{Path, PathBuf},
+    result::Result,
+    str::FromStr,
+    sync::Arc,
+};
 
 // use
 use bdk_wallet::bitcoin::{
@@ -31,14 +31,17 @@ use bdk_wallet::bitcoin::{
     consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
     hashes::sha256,
     hex::HexToArrayError,
-    key::rand::{self, RngCore},
+    key::{
+        Secp256k1,
+        rand::{self, RngCore},
+    },
 };
 use tracing::*;
 use wallet_utils::{encdec, log_err};
 
 // use crate
 use crate::{
-    backend::{BackendError, BackendRpc},
+    backend::{BackendError, BackendRpc, ScriptHistory},
     config::ConfigError,
     htlc::HtlcError,
     taproot::TapError,
@@ -387,6 +390,12 @@ pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
     debug!("fee_rate = {}", fee_rate);
     debug!("fee = {}", fee);
     Amount::from_sat(fee)
+}
+
+pub fn generate_keypair() -> Keypair {
+    let secp = Secp256k1::new();
+    let (secret_key, _public_key) = secp.generate_keypair(&mut rand::thread_rng());
+    Keypair::from_secret_key(&secp, &secret_key)
 }
 
 pub fn generate_preimage() -> ([u8; 32], sha256::Hash) {

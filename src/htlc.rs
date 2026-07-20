@@ -7,7 +7,10 @@ use bdk_wallet::{
         Transaction, TxIn, TxOut, Witness, absolute,
         bip32::Error as Bip32Error,
         hashes::{Hash, sha256},
-        key::rand::{self, RngCore},
+        key::{
+            Keypair,
+            rand::{self, RngCore},
+        },
         relative::LockTime,
         secp256k1::{self, Parity, XOnlyPublicKey},
         sighash::TaprootError,
@@ -104,9 +107,6 @@ pub struct Htlc {
     pub preimage_hash: sha256::Hash,
     pub csv_blocks: u32,
 
-    claim_xonly_pubkey: XOnlyPublicKey,
-    refund_xonly_pubkey: XOnlyPublicKey,
-
     derived: Descriptor<DefiniteDescriptorKey>,
 }
 
@@ -129,8 +129,6 @@ impl Htlc {
         Ok(Self {
             preimage_hash,
             csv_blocks,
-            claim_xonly_pubkey,
-            refund_xonly_pubkey,
             derived,
         })
     }
@@ -149,7 +147,7 @@ impl Htlc {
         prev_txout: &TxOut,
         vin_index: usize,
         preimage: [u8; 32],
-        claim_addr_index: u32,
+        claim_keypair: &Keypair,
         fee_rate: f64,
     ) -> Result<Transaction, HtlcError> {
         let mut spend_tx = Transaction {
@@ -165,7 +163,7 @@ impl Htlc {
                 value: Amount::ZERO, // fee計算後に設定
                 script_pubkey: ScriptBuf::new_p2tr(
                     wallet.secp_ctx(),
-                    self.claim_xonly_pubkey,
+                    claim_keypair.x_only_public_key().0,
                     None,
                 ),
             }],
@@ -178,8 +176,7 @@ impl Htlc {
             &spend_tx,
             vin_index,
             prev_txout,
-            claim_addr_index,
-            self.claim_xonly_pubkey,
+            claim_keypair,
             Some(preimage),
             None,
             "claim",
@@ -195,8 +192,7 @@ impl Htlc {
             &spend_tx,
             vin_index,
             prev_txout,
-            claim_addr_index,
-            self.claim_xonly_pubkey,
+            claim_keypair,
             Some(preimage),
             None,
             "claim",
@@ -213,7 +209,7 @@ impl Htlc {
         prev_outpoint: OutPoint,
         prev_txout: &TxOut,
         vin_index: usize,
-        refund_addr_index: u32,
+        refund_keypair: &Keypair,
         fee_rate: f64,
     ) -> Result<Transaction, HtlcError> {
         let mut spend_tx = Transaction {
@@ -229,7 +225,7 @@ impl Htlc {
                 value: Amount::ZERO, // fee計算後に設定
                 script_pubkey: ScriptBuf::new_p2tr(
                     wallet.secp_ctx(),
-                    self.refund_xonly_pubkey,
+                    refund_keypair.x_only_public_key().0,
                     None,
                 ),
             }],
@@ -241,8 +237,7 @@ impl Htlc {
             &spend_tx,
             vin_index,
             prev_txout,
-            refund_addr_index,
-            self.refund_xonly_pubkey,
+            refund_keypair,
             None,
             Some(spend_tx.input[vin_index].sequence.to_consensus_u32()),
             "refund",
@@ -258,8 +253,7 @@ impl Htlc {
             &spend_tx,
             vin_index,
             prev_txout,
-            refund_addr_index,
-            self.refund_xonly_pubkey,
+            refund_keypair,
             None,
             Some(spend_tx.input[vin_index].sequence.to_consensus_u32()),
             "refund",
@@ -277,8 +271,7 @@ impl Htlc {
         spend_tx: &Transaction,
         vin_index: usize,
         prev_txout: &TxOut,
-        addr_index: u32,
-        xonly_pubkey: XOnlyPublicKey,
+        keypair: &Keypair,
         preimage: Option<[u8; 32]>,
         sequence: Option<u32>,
         leaf_name: &str,
@@ -291,18 +284,19 @@ impl Htlc {
             BTreeMap::new()
         };
 
-        let spend_data = build_taproot_leaf_spend_data(&self.derived, xonly_pubkey, leaf_name)?;
+        let spend_data =
+            build_taproot_leaf_spend_data(&self.derived, keypair.x_only_public_key().0, leaf_name)?;
         let taproot_sig = sign_taproot_script_spend(
             wallet,
             is_dummy,
-            addr_index,
+            keypair,
             spend_tx,
             vin_index,
             prev_txout,
             spend_data.leaf_hash,
         )?;
 
-        let pk = PublicKey::from(xonly_pubkey.public_key(Parity::Even));
+        let pk = PublicKey::from(keypair.x_only_public_key().0.public_key(Parity::Even));
 
         let mut sigs = BTreeMap::new();
         sigs.insert((pk, spend_data.leaf_hash), taproot_sig);
