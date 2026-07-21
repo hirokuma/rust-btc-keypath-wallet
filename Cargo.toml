@@ -2,10 +2,11 @@
 edition = "2024"
 license = "MIT"
 name = "btc_wallet"
-version = "0.0.3"
+version = "0.0.4"
 
 [dependencies]
-wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.0" }
+wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.1" }
+# wallet_utils = { path = "../rust-wallet-utils" }
 
 argon2 = {version = "0.5.3", features = ["password-hash"]}
 bdk_electrum = "0.24.0"
@@ -22,5 +23,5 @@ zeroize = "1.9.0"
 
 [dev-dependencies]
 anyhow = "1.0.104"
-clap = {version = "4.6.1", features = ["derive"]}
+clap = {version = "4.6.3", features = ["derive"]}
 tracing-subscriber = {version = "0.3.23", features = ["env-filter"]}
