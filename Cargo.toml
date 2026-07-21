@@ -2,7 +2,7 @@
 edition = "2024"
 license = "MIT"
 name = "btc_wallet"
-version = "0.0.4"
+version = "0.1.0"
 
 [dependencies]
 wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.1" }

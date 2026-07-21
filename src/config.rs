@@ -41,9 +41,6 @@ pub struct Config {
     /// BDK Wallet filename
     pub wallet_path: PathBuf,
 
-    /// Private key filename
-    pub privkey_path: PathBuf,
-
     /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
 

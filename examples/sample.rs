@@ -21,7 +21,6 @@ fn main() -> Result<()> {
 
     let config = Config {
         wallet_path: Path::new("./sample-wallet.bdk").to_path_buf(),
-        privkey_path: Path::new("./sample-privkey.txt").to_path_buf(),
         network: Network::Regtest,
         backend: btc_wallet::Backend::Electrum,
         electrum: btc_wallet::ElectrumConfig {
@@ -33,19 +32,23 @@ fn main() -> Result<()> {
     };
     config.check()?;
 
+    let xprv_path = Path::new("./sample-priv.txt");
     let passphrase = "SuperSecurePassword123!";
     let save_privkey =
         |path: &Path, xprv: &str| encdec::save_encoded_private_key(path, xprv, passphrase);
     let load_privkey = |path: &Path| encdec::load_encoded_private_key(path, passphrase);
 
-    let mut wallet = match config.privkey_path.exists() {
+    let mut wallet = match config.wallet_path.exists() {
         true => {
             tracing::info!("load wallet");
-            BtcWallet::load(config, load_privkey)
+            let xprv = load_privkey(Path::new(xprv_path))?;
+            BtcWallet::load(config, &xprv)
         }
         false => {
             tracing::info!("create wallet");
-            BtcWallet::create(config, save_privkey)
+            let (w, xprv) = BtcWallet::create(config)?;
+            save_privkey(Path::new(xprv_path), &xprv)?;
+            Ok(w)
         }
     }
     .inspect_err(|e| error!(Err=?e, "Fail wallet instance creation"))?;
