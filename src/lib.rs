@@ -31,10 +31,8 @@ use bdk_wallet::bitcoin::{
     consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
     hashes::sha256,
     hex::HexToArrayError,
-    key::{
-        Secp256k1,
-        rand::{self, RngCore},
-    },
+    key::rand::{self, RngCore},
+    secp256k1,
 };
 use tracing::*;
 use wallet_utils::{encdec, log_err};
@@ -79,6 +77,9 @@ pub enum Error {
 
     #[error("{0}")]
     Wallet(#[source] Box<WalletError>),
+
+    #[error("{0}")]
+    Secp(#[source] secp256k1::Error),
 
     #[error("parse error")]
     Parse(#[source] ParseError),
@@ -349,6 +350,17 @@ impl BtcWallet {
             .fetch_script_history(addr, last_height, only_confirmed)
             .map_err(|e| log_err!(Error::Backend(e), "find_txs: {}", addr))
     }
+
+    pub fn generate_keypair(&self) -> Keypair {
+        let secp = self.wallet.wallet.secp_ctx();
+        let (secret_key, _public_key) = secp.generate_keypair(&mut rand::thread_rng());
+        Keypair::from_secret_key(secp, &secret_key)
+    }
+
+    pub fn keypair_from_slice(&self, key: &[u8; 32]) -> Result<Keypair, Error> {
+        Keypair::from_seckey_slice(self.wallet.wallet.secp_ctx(), key)
+            .map_err(|e| log_err!(Error::Secp(e), "keypair_from_slice"))
+    }
 }
 
 pub fn htlc_new(
@@ -371,12 +383,6 @@ pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
     debug!("fee_rate = {}", fee_rate);
     debug!("fee = {}", fee);
     Amount::from_sat(fee)
-}
-
-pub fn generate_keypair() -> Keypair {
-    let secp = Secp256k1::new();
-    let (secret_key, _public_key) = secp.generate_keypair(&mut rand::thread_rng());
-    Keypair::from_secret_key(&secp, &secret_key)
 }
 
 pub fn generate_preimage() -> ([u8; 32], sha256::Hash) {
