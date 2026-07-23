@@ -149,6 +149,7 @@ impl Htlc {
         preimage: [u8; 32],
         claim_keypair: &Keypair,
         fee_rate: f64,
+        script_pubkey: ScriptBuf,
     ) -> Result<Transaction, HtlcError> {
         let mut spend_tx = Transaction {
             version: transaction::Version::TWO,
@@ -161,11 +162,7 @@ impl Htlc {
             }],
             output: vec![transaction::TxOut {
                 value: Amount::ZERO, // fee計算後に設定
-                script_pubkey: ScriptBuf::new_p2tr(
-                    wallet.secp_ctx(),
-                    claim_keypair.x_only_public_key().0,
-                    None,
-                ),
+                script_pubkey,
             }],
         };
 
@@ -211,6 +208,7 @@ impl Htlc {
         vin_index: usize,
         refund_keypair: &Keypair,
         fee_rate: f64,
+        script_pubkey: ScriptBuf,
     ) -> Result<Transaction, HtlcError> {
         let mut spend_tx = Transaction {
             version: transaction::Version::TWO,
@@ -223,11 +221,7 @@ impl Htlc {
             }],
             output: vec![transaction::TxOut {
                 value: Amount::ZERO, // fee計算後に設定
-                script_pubkey: ScriptBuf::new_p2tr(
-                    wallet.secp_ctx(),
-                    refund_keypair.x_only_public_key().0,
-                    None,
-                ),
+                script_pubkey,
             }],
         };
 
