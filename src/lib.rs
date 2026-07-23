@@ -11,7 +11,8 @@ pub use crate::{
     htlc::Htlc,
 };
 pub use bdk_wallet::bitcoin::{
-    Address, Amount, Network, OutPoint, Transaction, Txid, bip32::Xpriv, hashes::Hash, key::Keypair,
+    Address, Amount, Network, OutPoint, Transaction, Txid, XOnlyPublicKey, bip32::Xpriv,
+    hashes::Hash, hashes::sha256::Hash as Sha256, key::Keypair,
 };
 pub use bdk_wallet::{AddressInfo, Balance, miniscript, rusqlite};
 
@@ -25,11 +26,10 @@ use std::{
 
 // use
 use bdk_wallet::bitcoin::{
-    self, FeeRate, XOnlyPublicKey,
+    self, FeeRate,
     address::NetworkUnchecked,
     bip32,
     consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
-    hashes::sha256,
     hex::HexToArrayError,
     key::rand::{self, RngCore},
     secp256k1,
@@ -364,7 +364,7 @@ impl BtcWallet {
 }
 
 pub fn htlc_new(
-    preimage_hash: sha256::Hash,
+    preimage_hash: Sha256,
     csv_blocks: u32,
     claim_xonly_pubkey: XOnlyPublicKey,
     refund_xonly_pubkey: XOnlyPublicKey,
@@ -385,12 +385,12 @@ pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
     Amount::from_sat(fee)
 }
 
-pub fn generate_preimage() -> ([u8; 32], sha256::Hash) {
+pub fn generate_preimage() -> ([u8; 32], Sha256) {
     htlc::generate_preimage()
 }
 
-pub fn to_sha256(hash_str: &str) -> Result<sha256::Hash, Error> {
-    sha256::Hash::from_str(hash_str).map_err(|e| {
+pub fn to_sha256(hash_str: &str) -> Result<Sha256, Error> {
+    Sha256::from_str(hash_str).map_err(|e| {
         log_err!(
             Error::Parse(ParseError::HexConvert(e)),
             "to_sha256: hash_str={}",
