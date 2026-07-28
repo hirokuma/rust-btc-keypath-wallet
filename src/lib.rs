@@ -11,7 +11,7 @@ pub use crate::{
     htlc::Htlc,
 };
 pub use bdk_wallet::bitcoin::{
-    Address, Amount, Network, OutPoint, Transaction, Txid, XOnlyPublicKey, bip32::Xpriv,
+    Address, Amount, Network, OutPoint, ScriptBuf, Transaction, Txid, XOnlyPublicKey, bip32::Xpriv,
     hashes::Hash, hashes::sha256::Hash as Sha256, key::Keypair,
 };
 pub use bdk_wallet::{AddressInfo, Balance, miniscript, rusqlite};
@@ -92,6 +92,9 @@ pub enum Error {
 
     #[error("fail wallet file enc/dec: {0}")]
     WalletEncDec(#[source] encdec::EncDecError),
+
+    #[error("btc_wallet Error: {0}")]
+    Error(String),
 }
 
 pub fn load_config(config_fname: &Path) -> Result<Config, Error> {
@@ -266,6 +269,43 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "get_tx"))
     }
 
+    /// TXIDのconfirmした高さを返す。confirmしていない場合はエラー(unconfirmな場合も含む)。
+    /// https://deepwiki.com/search/txidconfirmation_1a1633c5-fa80-4242-b256-154489c49fe0?mode=fast
+    pub fn get_tx_height(&self, txid: &Txid, script: ScriptBuf) -> Result<u32, Error> {
+        let history = self
+            .rpc
+            .get_script_histories(script)
+            .map_err(|e| log_err!(Error::Backend(e), "get_script_histories"))?;
+        let tx = history.iter().find(|tx| tx.tx_hash == *txid);
+        if let Some(tx) = tx {
+            if tx.height > 0 {
+                // confirmしている
+                Ok(tx.height as u32)
+            } else {
+                // unconfirm or not found
+                let msg = format!("not found(txid={}): tx.height={}", txid, tx.height);
+                Err(log_err!(Error::Error(msg), "get_tx_height"))
+            }
+        } else {
+            let msg = format!("fail find history(txid={})", txid);
+            Err(log_err!(Error::Error(msg), "get_tx_height"))
+        }
+    }
+
+    pub fn get_confirm_number(&self, txid: &Txid, script: ScriptBuf) -> Result<u32, Error> {
+        let tx_height = self.get_tx_height(txid, script)?;
+        let current_height = self.get_current_height()?;
+        if tx_height > 0 {
+            trace!(
+                "get_confirm_number(txid={}): current={}, tx_height={}",
+                txid, current_height, tx_height
+            );
+            Ok(current_height.saturating_sub(tx_height) + 1)
+        } else {
+            Ok(0)
+        }
+    }
+
     pub fn create_tx(
         &mut self,
         addr: &Address,
@@ -322,9 +362,30 @@ impl BtcWallet {
         last_height: u32,
         only_confirmed: bool,
     ) -> Result<Vec<ScriptHistory>, Error> {
-        self.rpc
-            .fetch_script_history(addr, last_height, only_confirmed)
-            .map_err(|e| log_err!(Error::Backend(e), "find_txs: {}", addr))
+        let script = addr.script_pubkey();
+        let history = self
+            .rpc
+            .get_script_histories(script)
+            .map_err(|e| log_err!(Error::Backend(e), "get_script_histories: {}", addr))?;
+
+        let history: Vec<ScriptHistory> = history
+            .into_iter()
+            .filter(|h| {
+                if only_confirmed {
+                    h.height > 0 && h.height as u32 > last_height
+                } else {
+                    h.height <= 0 || h.height as u32 > last_height
+                }
+            })
+            .map(|h| {
+                let height = if h.height > 0 { h.height as u32 } else { 0 };
+                ScriptHistory {
+                    txid: h.tx_hash,
+                    height,
+                }
+            })
+            .collect();
+        Ok(history)
     }
 }
 
@@ -389,6 +450,10 @@ pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
 
 pub fn generate_preimage() -> ([u8; 32], Sha256) {
     htlc::generate_preimage()
+}
+
+pub fn preimage_hash(preimage: &[u8; 32]) -> Sha256 {
+    Sha256::hash(preimage)
 }
 
 pub fn to_sha256(hash_str: &str) -> Result<Sha256, Error> {

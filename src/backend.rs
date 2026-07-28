@@ -1,9 +1,9 @@
 use std::{result::Result, sync::Arc};
 
-use bdk_electrum::electrum_client::Error as ElectrumError;
+use bdk_electrum::electrum_client::{Error as ElectrumError, GetHistoryRes};
 use bdk_wallet::{
     KeychainKind,
-    bitcoin::{Address, Transaction, Txid},
+    bitcoin::{Address, ScriptBuf, Transaction, Txid},
     chain::spk_client::{
         FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
     },
@@ -33,6 +33,13 @@ pub enum BackendError {
     #[error("get transaction error: {source}")]
     GetTx {
         txid: Txid,
+        #[source]
+        source: BackendSourceError,
+    },
+
+    #[error("get tx history: {source}")]
+    GetHistory {
+        script: ScriptBuf,
         #[source]
         source: BackendSourceError,
     },
@@ -80,6 +87,8 @@ pub trait BackendRpc: Send + Sync {
 
     /// Get the transaction
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError>;
+
+    fn get_script_histories(&self, script: ScriptBuf) -> Result<Vec<GetHistoryRes>, BackendError>;
 
     fn fetch_script_history(
         &self,

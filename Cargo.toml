@@ -2,7 +2,7 @@
 edition = "2024"
 license = "MIT"
 name = "btc_wallet"
-version = "0.1.3"
+version = "0.1.4"
 
 [dependencies]
 wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.1" }
@@ -23,5 +23,5 @@ zeroize = "1.9.0"
 
 [dev-dependencies]
 anyhow = "1.0.104"
-clap = {version = "4.6.3", features = ["derive"]}
+clap = {version = "4.6.4", features = ["derive"]}
 tracing-subscriber = {version = "0.3.23", features = ["env-filter"]}

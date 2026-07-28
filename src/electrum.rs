@@ -2,11 +2,11 @@ use std::{result::Result, sync::Arc};
 
 use bdk_electrum::{
     BdkElectrumClient,
-    electrum_client::{self, ElectrumApi},
+    electrum_client::{self, ElectrumApi, GetHistoryRes},
 };
 use bdk_wallet::{
     KeychainKind,
-    bitcoin::{Address, Transaction, Txid},
+    bitcoin::{Address, ScriptBuf, Transaction, Txid},
     chain::spk_client::{
         FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
     },
@@ -102,6 +102,18 @@ impl BackendRpc for ElectrumRpc {
                     source: BackendSourceError::Electrum(Box::new(e)),
                 },
                 "fetch_tx"
+            )
+        })
+    }
+
+    fn get_script_histories(&self, script: ScriptBuf) -> Result<Vec<GetHistoryRes>, BackendError> {
+        self.client.inner.script_get_history(&script).map_err(|e| {
+            log_err!(
+                BackendError::GetHistory {
+                    script,
+                    source: BackendSourceError::Electrum(Box::new(e)),
+                },
+                "get_script_histories"
             )
         })
     }
