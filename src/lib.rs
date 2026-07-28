@@ -266,30 +266,6 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "get_tx"))
     }
 
-    pub fn parse_txid_hex(&self, txid_hex: &str) -> Result<Txid, Error> {
-        txid_hex.parse().map_err(|e| {
-            log_err!(
-                Error::Parse(ParseError::HexConvert(e)),
-                "parse_txid: txid_str={}",
-                txid_hex,
-            )
-        })
-    }
-
-    pub fn parse_tx_hex(&self, tx_hex: &str) -> Result<Transaction, Error> {
-        deserialize_hex(tx_hex).map_err(move |e| {
-            log_err!(
-                Error::Parse(ParseError::FromHex(e)),
-                "parse_tx_hex: tx_hex={}",
-                tx_hex
-            )
-        })
-    }
-
-    pub fn to_tx_hex(&self, tx: &Transaction) -> String {
-        serialize_hex(tx)
-    }
-
     pub fn create_tx(
         &mut self,
         addr: &Address,
@@ -350,7 +326,9 @@ impl BtcWallet {
             .fetch_script_history(addr, last_height, only_confirmed)
             .map_err(|e| log_err!(Error::Backend(e), "find_txs: {}", addr))
     }
+}
 
+impl BtcWallet {
     pub fn generate_keypair(&self) -> Keypair {
         let secp = self.wallet.wallet.secp_ctx();
         let (secret_key, _public_key) = secp.generate_keypair(&mut rand::thread_rng());
@@ -376,6 +354,30 @@ pub fn htlc_new(
         refund_xonly_pubkey,
     )
     .map_err(|e| log_err!(Error::Htlc(e), "htlc_new"))
+}
+
+pub fn parse_txid_hex(txid_hex: &str) -> Result<Txid, Error> {
+    txid_hex.parse().map_err(|e| {
+        log_err!(
+            Error::Parse(ParseError::HexConvert(e)),
+            "parse_txid: txid_str={}",
+            txid_hex,
+        )
+    })
+}
+
+pub fn parse_tx_hex(tx_hex: &str) -> Result<Transaction, Error> {
+    deserialize_hex(tx_hex).map_err(move |e| {
+        log_err!(
+            Error::Parse(ParseError::FromHex(e)),
+            "parse_tx_hex: tx_hex={}",
+            tx_hex
+        )
+    })
+}
+
+pub fn to_tx_hex(tx: &Transaction) -> String {
+    serialize_hex(tx)
 }
 
 pub fn fee_from_rate(fee_rate: f64, vsize: usize) -> Amount {
@@ -465,30 +467,26 @@ mod tests {
 
     #[test]
     fn test_parse_txid_hex() {
-        let dir = tempdir().unwrap();
-        let config = make_config(&dir);
-        let (wallet, _xprv) = BtcWallet::create(config.clone()).unwrap();
-
         // empty
         let txid_str = "";
-        let txid = wallet.parse_txid_hex(txid_str);
+        let txid = parse_txid_hex(txid_str);
         assert!(txid.is_err());
 
         // valid txid (32 bytes = 64 hex chars)
         let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-        let txid = wallet.parse_txid_hex(txid_str);
+        let txid = parse_txid_hex(txid_str);
         assert!(txid.is_ok());
         let result: Txid = txid_str.parse().unwrap();
         assert_eq!(txid.unwrap(), result);
 
         // short
         let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee";
-        let txid = wallet.parse_txid_hex(txid_str);
+        let txid = parse_txid_hex(txid_str);
         assert!(txid.is_err());
 
         // long
         let txid_str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00";
-        let txid = wallet.parse_txid_hex(txid_str);
+        let txid = parse_txid_hex(txid_str);
         assert!(txid.is_err());
     }
 
