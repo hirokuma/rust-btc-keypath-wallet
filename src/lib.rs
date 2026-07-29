@@ -27,7 +27,7 @@ use std::{
 // use
 use bdk_wallet::bitcoin::{
     self, FeeRate,
-    address::NetworkUnchecked,
+    address::{FromScriptError, NetworkUnchecked},
     bip32,
     consensus::encode::{FromHexError, deserialize_hex, serialize_hex},
     hex::HexToArrayError,
@@ -57,7 +57,10 @@ pub enum ParseError {
     #[error("HexToArrayError: {0}")]
     HexConvert(#[source] HexToArrayError),
 
-    #[error("tx conversion error")]
+    #[error("FromScriptError: {0}")]
+    FromScript(#[source] FromScriptError),
+
+    #[error("tx conversion error: {0}")]
     FromHex(#[source] FromHexError),
 }
 
@@ -254,6 +257,15 @@ impl BtcWallet {
             &self.wallet.wallet,
             addr_info,
         )?)
+    }
+
+    pub fn get_address_from_script(&self, script: &ScriptBuf) -> Result<Address, Error> {
+        Address::from_script(script, self.config.network).map_err(|e| {
+            log_err!(
+                Error::Parse(ParseError::FromScript(e)),
+                "get_address_from_script"
+            )
+        })
     }
 
     pub fn get_current_height(&self) -> Result<u32, Error> {
