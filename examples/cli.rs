@@ -70,6 +70,7 @@ fn main() -> Result<()> {
     let save_privkey =
         |path: &Path, xprv: &str| encdec::save_encoded_private_key(path, xprv, passphrase);
     let load_privkey = |path: &Path| encdec::load_encoded_private_key(path, passphrase);
+    let wallet_path = Path::new("sample-wallet.bdk");
 
     match cli.command {
         None => {
@@ -79,13 +80,14 @@ fn main() -> Result<()> {
         }
         Some(Commands::Create) => {
             let (wallet, xprv) =
-                BtcWallet::create(config).inspect_err(|e| error!("create: {e}"))?;
+                BtcWallet::create(config, wallet_path).inspect_err(|e| error!("create: {e}"))?;
             save_privkey(priv_path, &xprv)?;
             println!("wallet created: {}", wallet.config.network);
         }
         Some(Commands::Balance) => {
             let xprv = load_privkey(priv_path)?;
-            let wallet = BtcWallet::load(config, &xprv).inspect_err(|e| error!("load: {e}"))?;
+            let wallet =
+                BtcWallet::load(config, &xprv, wallet_path).inspect_err(|e| error!("load: {e}"))?;
             let balance = wallet.balance();
             println!("balance: {}", balance);
         }
@@ -94,7 +96,8 @@ fn main() -> Result<()> {
         }
         Some(Commands::NewAddr) => {
             let xprv = load_privkey(priv_path)?;
-            let mut wallet = BtcWallet::load(config, &xprv).inspect_err(|e| error!("load: {e}"))?;
+            let mut wallet =
+                BtcWallet::load(config, &xprv, wallet_path).inspect_err(|e| error!("load: {e}"))?;
             let new_addr = wallet.new_address()?;
             println!("new address: {}", new_addr);
         }
@@ -108,7 +111,8 @@ fn main() -> Result<()> {
             fee_rate,
         }) => {
             let xprv = load_privkey(priv_path)?;
-            let mut wallet = BtcWallet::load(config, &xprv).inspect_err(|e| error!("load: {e}"))?;
+            let mut wallet =
+                BtcWallet::load(config, &xprv, wallet_path).inspect_err(|e| error!("load: {e}"))?;
             let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
                 .create_tx(&out_addr, amount, fee_rate)
@@ -122,7 +126,8 @@ fn main() -> Result<()> {
             fee_rate,
         }) => {
             let xprv = load_privkey(priv_path)?;
-            let mut wallet = BtcWallet::load(config, &xprv).inspect_err(|e| error!("load: {e}"))?;
+            let mut wallet =
+                BtcWallet::load(config, &xprv, wallet_path).inspect_err(|e| error!("load: {e}"))?;
             let out_addr = wallet.parse_address(&out_addr)?;
             let tx = wallet
                 .create_tx_single_anypay(&out_addr, amount, fee_rate)
@@ -132,7 +137,8 @@ fn main() -> Result<()> {
         }
         Some(Commands::SendRawTx { tx_hex }) => {
             let xprv = load_privkey(priv_path)?;
-            let wallet = BtcWallet::load(config, &xprv).inspect_err(|e| error!("load: {e}"))?;
+            let wallet =
+                BtcWallet::load(config, &xprv, wallet_path).inspect_err(|e| error!("load: {e}"))?;
             let tx = btc_wallet::parse_tx_hex(&tx_hex).inspect_err(|e| error!("to_hex: {e}"))?;
             let txid = wallet
                 .send_tx(&tx)
@@ -140,9 +146,8 @@ fn main() -> Result<()> {
             println!("txid: {}", txid);
         }
         Some(Commands::RemoveWalletFiles) => {
-            std::fs::remove_file(&config.wallet_path)?;
-            println!("remove: {}", config.wallet_path.to_string_lossy());
-            std::fs::remove_file(&config.wallet_path)?;
+            std::fs::remove_file(wallet_path)?;
+            println!("remove: {}", wallet_path.to_string_lossy());
         }
     }
 

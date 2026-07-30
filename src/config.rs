@@ -38,9 +38,6 @@ pub enum Backend {
 /// Wallet config
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    /// BDK Wallet filename
-    pub wallet_path: PathBuf,
-
     /// Network(Bitcoin, Testnet, Testnet4, Signet, Regtest)
     pub network: Network,
 

@@ -19,8 +19,8 @@ fn main() -> Result<()> {
         )
         .init();
 
+    let wallet_path = Path::new("./sample-wallet.bdk");
     let config = Config {
-        wallet_path: Path::new("./sample-wallet.bdk").to_path_buf(),
         network: Network::Regtest,
         backend: btc_wallet::Backend::Electrum,
         electrum: btc_wallet::ElectrumConfig {
@@ -38,15 +38,15 @@ fn main() -> Result<()> {
         |path: &Path, xprv: &str| encdec::save_encoded_private_key(path, xprv, passphrase);
     let load_privkey = |path: &Path| encdec::load_encoded_private_key(path, passphrase);
 
-    let mut wallet = match config.wallet_path.exists() {
+    let mut wallet = match wallet_path.exists() {
         true => {
             tracing::info!("load wallet");
             let xprv = load_privkey(Path::new(xprv_path))?;
-            BtcWallet::load(config, &xprv)
+            BtcWallet::load(config, &xprv, wallet_path)
         }
         false => {
             tracing::info!("create wallet");
-            let (w, xprv) = BtcWallet::create(config)?;
+            let (w, xprv) = BtcWallet::create(config, wallet_path)?;
             save_privkey(Path::new(xprv_path), &xprv)?;
             Ok(w)
         }

@@ -14,7 +14,10 @@ pub use bdk_wallet::bitcoin::{
     Address, Amount, Network, OutPoint, ScriptBuf, Transaction, Txid, XOnlyPublicKey, bip32::Xpriv,
     hashes::Hash, hashes::sha256::Hash as Sha256, key::Keypair,
 };
-pub use bdk_wallet::{AddressInfo, Balance, miniscript, rusqlite};
+pub use bdk_wallet::{
+    AddressInfo, Balance, miniscript,
+    rusqlite::{self, Connection, OpenFlags},
+};
 
 // use std
 use std::{
@@ -93,6 +96,9 @@ pub enum Error {
     #[error("fail access wallet file: {0}")]
     WalletFile(PathBuf),
 
+    #[error("fail wallet DB: {0}")]
+    WalletDb(rusqlite::Error),
+
     #[error("fail wallet file enc/dec: {0}")]
     WalletEncDec(#[source] encdec::EncDecError),
 
@@ -112,17 +118,23 @@ pub struct BtcWallet {
 
 impl BtcWallet {
     /// BtcWalletを生成する。ウォレットファイルがある場合は失敗する。
-    pub fn create(config: Config) -> Result<(Self, String), Error> {
-        if Path::new(&config.wallet_path).exists() {
+    pub fn create(config: Config, wallet_path: &Path) -> Result<(Self, String), Error> {
+        if Path::new(wallet_path).exists() {
             return Err(log_err!(
-                Error::WalletFile(config.wallet_path),
+                Error::WalletFile(wallet_path.to_path_buf()),
                 "wallet file already exist"
             ));
         }
 
+        let conn = Connection::open_with_flags(
+            wallet_path,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .map_err(|e| log_err!(Error::WalletDb(e), "create wallet"))?;
+
         let mut seed: [u8; 32] = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut seed);
-        let (mut wallet, xprv) = Wallet::create(&config, &seed)
+        let (mut wallet, xprv) = Wallet::create(&seed, conn, config.network)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "create wallet"))?;
 
         let rpc = match config.backend {
@@ -149,17 +161,20 @@ impl BtcWallet {
     }
 
     /// BtcWalletをloadする。ウォレットファイルがない場合は失敗する。
-    pub fn load(config: Config, xprv: &str) -> Result<Self, Error> {
-        if !Path::new(&config.wallet_path).exists() {
+    pub fn load(config: Config, xprv: &str, wallet_path: &Path) -> Result<Self, Error> {
+        if !Path::new(wallet_path).exists() {
             return Err(log_err!(
-                Error::WalletFile(config.wallet_path),
+                Error::WalletFile(wallet_path.to_path_buf()),
                 "wallet file not exist"
             ));
         }
 
+        let conn = Connection::open_with_flags(wallet_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(|e| log_err!(Error::WalletDb(e), "load wallet"))?;
+
         let xprv =
             Xpriv::from_str(xprv).map_err(|e| log_err!(Error::Bip32(e), "Xpriv::from_str"))?;
-        let mut wallet = Wallet::load(&config, xprv)
+        let mut wallet = Wallet::load(xprv, conn, config.network)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "load wallet"))?;
         let rpc = match config.backend {
             config::Backend::Electrum => electrum::ElectrumRpc::new(&config.electrum)
@@ -500,11 +515,12 @@ mod tests {
     #[test]
     fn test_create_load() {
         let dir = tempdir().unwrap();
+        let bdk_path = dir.path().join("wallet.bdk");
         let config = make_config(&dir);
-        let (_w, p) = BtcWallet::create(config.clone()).unwrap();
-        let _ = BtcWallet::load(config.clone(), &p).unwrap();
+        let (_w, p) = BtcWallet::create(config.clone(), &bdk_path).unwrap();
+        let _ = BtcWallet::load(config.clone(), &p, &bdk_path).unwrap();
         {
-            let result = BtcWallet::create(config.clone());
+            let result = BtcWallet::create(config.clone(), &bdk_path);
             assert!(result.is_err());
         }
     }
@@ -512,9 +528,10 @@ mod tests {
     #[test]
     fn test_fail_load_not_created() {
         let dir = tempdir().unwrap();
+        let bdk_path = dir.path().join("wallet.bdk");
         let config = make_config(&dir);
         {
-            let result = BtcWallet::load(config.clone(), "");
+            let result = BtcWallet::load(config.clone(), "", &bdk_path);
             assert!(result.is_err());
         }
     }
@@ -522,22 +539,24 @@ mod tests {
     #[test]
     fn test_fail_load_no_privkey_file() {
         let dir = tempdir().unwrap();
+        let bdk_path = dir.path().join("wallet.bdk");
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone()).unwrap();
+            let _ = BtcWallet::create(config.clone(), &bdk_path).unwrap();
         }
     }
 
     #[test]
     fn test_fail_load_no_wallet_file() {
         let dir = tempdir().unwrap();
+        let bdk_path = dir.path().join("wallet.bdk");
         let config = make_config(&dir);
         {
-            let _ = BtcWallet::create(config.clone()).unwrap();
+            let _ = BtcWallet::create(config.clone(), &bdk_path).unwrap();
         }
         {
-            std::fs::remove_file(&config.wallet_path).unwrap();
-            let result = BtcWallet::load(config.clone(), "");
+            std::fs::remove_file(bdk_path.clone()).unwrap();
+            let result = BtcWallet::load(config.clone(), "", &bdk_path);
             assert!(result.is_err());
         }
     }
@@ -567,10 +586,8 @@ mod tests {
         assert!(txid.is_err());
     }
 
-    fn make_config(dir: &tempfile::TempDir) -> Config {
-        let bdk_path = dir.path().join("wallet.bdk");
+    fn make_config(_dir: &tempfile::TempDir) -> Config {
         Config {
-            wallet_path: bdk_path,
             network: bdk_wallet::bitcoin::Network::Regtest,
             backend: config::Backend::Electrum,
             electrum: config::ElectrumConfig {
