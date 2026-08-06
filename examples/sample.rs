@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     println!("Send 1 BTC to {}", addr1);
     update_balances(&mut wallet);
 
-    let txs = wallet.fetch_script_history(&addr1, 0, false)?;
+    let txs = wallet.fetch_address_history(&addr1, false)?;
     println!("txs({}):\n{:?}", addr1, txs);
 
     let addr2 = wallet.new_address()?;

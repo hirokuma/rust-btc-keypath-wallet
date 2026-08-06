@@ -58,6 +58,9 @@ pub enum BackendError {
         #[source]
         source: BackendSourceError,
     },
+
+    #[error("electrum error: {0}")]
+    Error(String),
 }
 
 #[derive(Debug, Clone)]
@@ -88,14 +91,9 @@ pub trait BackendRpc: Send + Sync {
     /// Get the transaction
     fn get_tx(&self, txid: Txid) -> Result<Arc<Transaction>, BackendError>;
 
-    fn get_script_histories(&self, script: ScriptBuf) -> Result<Vec<GetHistoryRes>, BackendError>;
+    fn get_batch_txs(&self, txid: &[Txid]) -> Result<Vec<Transaction>, BackendError>;
 
-    fn fetch_script_history(
-        &self,
-        addr: &Address,
-        last_height: u32,
-        only_confirmed: bool,
-    ) -> Result<Vec<ScriptHistory>, BackendError>;
+    fn get_script_history(&self, script: &ScriptBuf) -> Result<Vec<GetHistoryRes>, BackendError>;
 
     /// Send the transaction
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError>;

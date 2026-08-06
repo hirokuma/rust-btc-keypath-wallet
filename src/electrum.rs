@@ -6,7 +6,7 @@ use bdk_electrum::{
 };
 use bdk_wallet::{
     KeychainKind,
-    bitcoin::{Address, ScriptBuf, Transaction, Txid},
+    bitcoin::{ScriptBuf, Transaction, Txid},
     chain::spk_client::{
         FullScanRequestBuilder, FullScanResponse, SyncRequestBuilder, SyncResponse,
     },
@@ -14,7 +14,7 @@ use bdk_wallet::{
 use tracing::*;
 
 use crate::{
-    backend::{BackendError, BackendRpc, BackendSourceError, ScriptHistory},
+    backend::{BackendError, BackendRpc, BackendSourceError},
     config::ElectrumConfig,
     log_err,
 };
@@ -106,52 +106,23 @@ impl BackendRpc for ElectrumRpc {
         })
     }
 
-    fn get_script_histories(&self, script: ScriptBuf) -> Result<Vec<GetHistoryRes>, BackendError> {
-        self.client.inner.script_get_history(&script).map_err(|e| {
+    fn get_batch_txs(&self, txids: &[Txid]) -> Result<Vec<Transaction>, BackendError> {
+        self.client
+            .inner
+            .batch_transaction_get(txids)
+            .map_err(|e| log_err!(BackendError::Error(format!("fail: {e}")), "fetch_tx"))
+    }
+
+    fn get_script_history(&self, script: &ScriptBuf) -> Result<Vec<GetHistoryRes>, BackendError> {
+        self.client.inner.script_get_history(script).map_err(|e| {
             log_err!(
                 BackendError::GetHistory {
-                    script,
+                    script: script.clone(),
                     source: BackendSourceError::Electrum(Box::new(e)),
                 },
                 "get_script_histories"
             )
         })
-    }
-
-    fn fetch_script_history(
-        &self,
-        addr: &Address,
-        last_height: u32,
-        only_confirmed: bool,
-    ) -> Result<Vec<ScriptHistory>, BackendError> {
-        let script = addr.script_pubkey();
-        let history = self.client.inner.script_get_history(&script).map_err(|e| {
-            log_err!(
-                BackendError::FindTxs {
-                    addr: addr.clone(),
-                    source: BackendSourceError::Electrum(Box::new(e)),
-                },
-                "script_get_history"
-            )
-        })?;
-        let history: Vec<ScriptHistory> = history
-            .into_iter()
-            .filter(|h| {
-                if only_confirmed {
-                    h.height > 0 && h.height as u32 > last_height
-                } else {
-                    h.height <= 0 || h.height as u32 > last_height
-                }
-            })
-            .map(|h| {
-                let height = if h.height > 0 { h.height as u32 } else { 0 };
-                ScriptHistory {
-                    txid: h.tx_hash,
-                    height,
-                }
-            })
-            .collect();
-        Ok(history)
     }
 
     fn send_tx(&self, tx: &Transaction) -> Result<Txid, BackendError> {

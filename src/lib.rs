@@ -7,12 +7,13 @@ mod wallet;
 
 // pub use
 pub use crate::{
+    backend::ScriptHistory,
     config::{Backend, Config, ElectrumConfig},
     htlc::Htlc,
 };
 pub use bdk_wallet::bitcoin::{
-    Address, Amount, Network, OutPoint, ScriptBuf, Transaction, Txid, XOnlyPublicKey, bip32::Xpriv,
-    hashes::Hash, hashes::sha256::Hash as Sha256, key::Keypair,
+    Address, Amount, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    bip32::Xpriv, hashes::Hash, hashes::sha256::Hash as Sha256, key::Keypair,
 };
 pub use bdk_wallet::{
     AddressInfo, Balance, miniscript,
@@ -21,6 +22,7 @@ pub use bdk_wallet::{
 
 // use std
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     result::Result,
     str::FromStr,
@@ -42,7 +44,7 @@ use wallet_utils::{encdec, log_err};
 
 // use crate
 use crate::{
-    backend::{BackendError, BackendRpc, ScriptHistory},
+    backend::{BackendError, BackendRpc},
     config::ConfigError,
     htlc::HtlcError,
     taproot::TapError,
@@ -104,6 +106,23 @@ pub enum Error {
 
     #[error("btc_wallet Error: {0}")]
     Error(String),
+}
+
+// fetch_script_history()の結果のうちoutputにヒット
+#[derive(Debug, Clone)]
+pub struct FindHistoryOutput {
+    pub tx: Transaction,
+    pub vout: usize, // outpoint=tx.output[vout]
+    pub height: u32, // tx's height
+}
+
+// fetch_script_history()の結果のうちinputにヒット
+#[derive(Debug, Clone)]
+pub struct FindHistoryInput {
+    pub spent_tx: Transaction,
+    pub vin: usize, // outpoint=tx.input[vin]
+    pub previous_outpoint: OutPoint,
+    pub height: u32, // spent_tx's height
 }
 
 pub fn load_config(config_fname: &Path) -> Result<Config, Error> {
@@ -298,10 +317,10 @@ impl BtcWallet {
 
     /// TXIDのconfirmした高さを返す。confirmしていない場合はエラー(unconfirmな場合も含む)。
     /// https://deepwiki.com/search/txidconfirmation_1a1633c5-fa80-4242-b256-154489c49fe0?mode=fast
-    pub fn get_tx_height(&self, txid: &Txid, script: ScriptBuf) -> Result<u32, Error> {
+    pub fn get_tx_height(&self, txid: &Txid, script: &ScriptBuf) -> Result<u32, Error> {
         let history = self
             .rpc
-            .get_script_histories(script)
+            .get_script_history(script)
             .map_err(|e| log_err!(Error::Backend(e), "get_script_histories"))?;
         let tx = history.iter().find(|tx| tx.tx_hash == *txid);
         if let Some(tx) = tx {
@@ -319,7 +338,7 @@ impl BtcWallet {
         }
     }
 
-    pub fn get_confirm_number(&self, txid: &Txid, script: ScriptBuf) -> Result<u32, Error> {
+    pub fn get_confirm_number(&self, txid: &Txid, script: &ScriptBuf) -> Result<u32, Error> {
         let tx_height = self.get_tx_height(txid, script)?;
         let current_height = self.get_current_height()?;
         if tx_height > 0 {
@@ -385,25 +404,17 @@ impl BtcWallet {
 
     pub fn fetch_script_history(
         &self,
-        addr: &Address,
-        last_height: u32,
+        script: &ScriptBuf,
         only_confirmed: bool,
     ) -> Result<Vec<ScriptHistory>, Error> {
-        let script = addr.script_pubkey();
         let history = self
             .rpc
-            .get_script_histories(script)
-            .map_err(|e| log_err!(Error::Backend(e), "get_script_histories: {}", addr))?;
+            .get_script_history(script)
+            .map_err(|e| log_err!(Error::Backend(e), "get_script_histories: {}", script))?;
 
         let history: Vec<ScriptHistory> = history
             .into_iter()
-            .filter(|h| {
-                if only_confirmed {
-                    h.height > 0 && h.height as u32 > last_height
-                } else {
-                    h.height <= 0 || h.height as u32 > last_height
-                }
-            })
+            .filter(|h| !only_confirmed || h.height > 0)
             .map(|h| {
                 let height = if h.height > 0 { h.height as u32 } else { 0 };
                 ScriptHistory {
@@ -413,6 +424,94 @@ impl BtcWallet {
             })
             .collect();
         Ok(history)
+    }
+
+    pub fn fetch_address_history(
+        &self,
+        addr: &Address,
+        only_confirmed: bool,
+    ) -> Result<Vec<ScriptHistory>, Error> {
+        let script = addr.script_pubkey();
+        self.fetch_script_history(&script, only_confirmed)
+    }
+
+    pub fn find_history_inout(
+        &self,
+        hists: &[ScriptHistory],
+        script: &ScriptBuf,
+    ) -> Result<(Vec<FindHistoryOutput>, Vec<FindHistoryInput>), Error> {
+        let txids: Vec<_> = hists.iter().map(|h| h.txid).collect();
+        let txs = self
+            .rpc
+            .get_batch_txs(&txids)
+            .map_err(|e| log_err!(Error::Backend(e), "get_batch_txs"))?;
+
+        let mut our_outpoints = HashSet::new();
+        let mut utxos = Vec::new();
+        for tx in &txs {
+            for (vout, out) in tx.output.iter().enumerate() {
+                if out.script_pubkey == *script {
+                    let txid = tx.compute_txid();
+                    let height = hists
+                        .iter()
+                        .find_map(|h| if h.txid == txid { Some(h.height) } else { None })
+                        .unwrap_or_default();
+                    our_outpoints.insert(OutPoint {
+                        txid,
+                        vout: vout as u32,
+                    });
+                    utxos.push(FindHistoryOutput {
+                        tx: tx.clone(),
+                        vout,
+                        height,
+                    });
+                }
+            }
+        }
+
+        let mut spent_outpoints = Vec::new();
+        for tx in &txs {
+            for (vin, input) in tx.input.iter().enumerate() {
+                if our_outpoints.contains(&OutPoint {
+                    txid: input.previous_output.txid,
+                    vout: input.previous_output.vout,
+                }) {
+                    let txid = tx.compute_txid();
+                    let height = hists
+                        .iter()
+                        .find_map(|h| if h.txid == txid { Some(h.height) } else { None })
+                        .unwrap_or_default();
+                    spent_outpoints.push(FindHistoryInput {
+                        previous_outpoint: input.previous_output,
+                        spent_tx: tx.clone(),
+                        vin,
+                        height,
+                    });
+                }
+            }
+        }
+
+        Ok((utxos, spent_outpoints))
+    }
+
+    pub fn find_vout_index(&self, txid: Txid, script: &ScriptBuf) -> Option<u32> {
+        let Ok(tx) = self.get_tx(txid) else {
+            return None;
+        };
+        tx.output
+            .iter()
+            .position(|v| &v.script_pubkey == script)
+            .map(|v| v as u32)
+    }
+
+    pub fn find_vin_index(&self, txid: Txid, script: &ScriptBuf) -> Option<u32> {
+        let Ok(tx) = self.get_tx(txid) else {
+            return None;
+        };
+        tx.output
+            .iter()
+            .position(|v| &v.script_pubkey == script)
+            .map(|v| v as u32)
     }
 }
 
@@ -442,6 +541,20 @@ pub fn htlc_new(
         refund_xonly_pubkey,
     )
     .map_err(|e| log_err!(Error::Htlc(e), "htlc_new"))
+}
+
+pub fn htlc_new_from_bytes(
+    preimage_hash_bytes: [u8; 32],
+    csv_blocks: u32,
+    claim_xonly_pubkey_bytes: &[u8; 32],
+    refund_xonly_pubkey_bytes: &[u8; 32],
+) -> Result<htlc::Htlc, Error> {
+    htlc_new(
+        Sha256::from_byte_array(preimage_hash_bytes),
+        csv_blocks,
+        to_xonly_pubkey(claim_xonly_pubkey_bytes)?,
+        to_xonly_pubkey(refund_xonly_pubkey_bytes)?,
+    )
 }
 
 pub fn parse_txid_hex(txid_hex: &str) -> Result<Txid, Error> {
