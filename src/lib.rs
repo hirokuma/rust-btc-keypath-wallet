@@ -616,8 +616,8 @@ pub fn to_outpoint(outpoint: &str) -> Result<OutPoint, Error> {
     })
 }
 
-pub fn to_xonly_pubkey(bytes: &[u8; 32]) -> Result<XOnlyPublicKey, TapError> {
-    XOnlyPublicKey::from_slice(bytes).map_err(|e| log_err!(TapError::Secp(e), "xonly_pubkey"))
+pub fn to_xonly_pubkey(bytes: &[u8; 32]) -> Result<XOnlyPublicKey, Error> {
+    XOnlyPublicKey::from_slice(bytes).map_err(|e| log_err!(Error::Secp(e), "xonly_pubkey"))
 }
 
 #[cfg(test)]
@@ -710,5 +710,18 @@ mod tests {
                 gap_limit: 20,
             },
         }
+    }
+
+    #[test]
+    fn test_to_xonly_pubkey() {
+        let bytes_str = "7a4e92ac2d5413665b4cb7e62e29a74f63b456d7abebab91c8f310e2d8157b9e";
+        let bytes = hex::decode(bytes_str).unwrap();
+        let xonly: [u8; 32] = bytes.try_into().unwrap();
+        // エラーにならなければ良い
+        let _ = crate::to_xonly_pubkey(&xonly).unwrap();
+
+        let xonly = [0u8; 32];
+        let xonly = crate::to_xonly_pubkey(&xonly);
+        assert!(matches!(xonly, Err(Error::Secp(_))));
     }
 }
