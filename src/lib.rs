@@ -315,7 +315,7 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "get_tx"))
     }
 
-    /// TXIDのconfirmした高さを返す。confirmしていない場合はエラー(unconfirmな場合も含む)。
+    /// TXIDのconfirmした高さを返す。confirmしていない場合は0(未検出含む)。
     /// https://deepwiki.com/search/txidconfirmation_1a1633c5-fa80-4242-b256-154489c49fe0?mode=fast
     pub fn get_tx_height(&self, txid: &Txid, script: &ScriptBuf) -> Result<u32, Error> {
         let history = self
@@ -324,14 +324,7 @@ impl BtcWallet {
             .map_err(|e| log_err!(Error::Backend(e), "get_script_histories"))?;
         let tx = history.iter().find(|tx| tx.tx_hash == *txid);
         if let Some(tx) = tx {
-            if tx.height > 0 {
-                // confirmしている
-                Ok(tx.height as u32)
-            } else {
-                // unconfirm or not found
-                let msg = format!("not found(txid={}): tx.height={}", txid, tx.height);
-                Err(log_err!(Error::Error(msg), "get_tx_height"))
-            }
+            Ok(tx.height as u32)
         } else {
             let msg = format!("fail find history(txid={})", txid);
             Err(log_err!(Error::Error(msg), "get_tx_height"))
