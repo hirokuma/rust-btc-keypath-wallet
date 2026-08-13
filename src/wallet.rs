@@ -77,10 +77,15 @@ impl Wallet {
         self.wallet.start_sync_with_revealed_spks()
     }
 
-    pub fn apply_update(&mut self, update: impl Into<Update>) -> Result<(), WalletError> {
+    pub fn apply_update_with_persist(
+        &mut self,
+        update: impl Into<Update>,
+    ) -> Result<(), WalletError> {
         self.wallet
             .apply_update(update)
-            .map_err(|e| log_err!(WalletError::ApplyUpdate(e), "apply_update"))
+            .map_err(|e| log_err!(WalletError::ApplyUpdate(e), "apply_update"))?;
+        self.persist()?;
+        Ok(())
     }
 
     pub fn persist(&mut self) -> Result<bool, WalletError> {

@@ -165,7 +165,7 @@ impl BtcWallet {
             .initial_scan(req)
             .map_err(|e| log_err!(Error::Backend(e), "create wallet"))?;
         wallet
-            .apply_update(update)
+            .apply_update_with_persist(update)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "create wallet"))?;
 
         debug!("create done");
@@ -204,7 +204,7 @@ impl BtcWallet {
             .initial_scan(req)
             .map_err(|e| log_err!(Error::Backend(e), "load wallet"))?;
         wallet
-            .apply_update(update)
+            .apply_update_with_persist(update)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "load wallet"))?;
 
         debug!("load done");
@@ -229,7 +229,7 @@ impl BtcWallet {
             .sync(req)
             .map_err(|e| log_err!(Error::Backend(e), "sync"))?;
         self.wallet
-            .apply_update(update)
+            .apply_update_with_persist(update)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "sync"))
     }
 
