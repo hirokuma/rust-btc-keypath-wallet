@@ -51,6 +51,22 @@ use crate::{
     wallet::{Wallet, WalletError},
 };
 
+pub trait AddressOrScript {
+    fn get_script(&self) -> ScriptBuf;
+}
+
+impl AddressOrScript for Address {
+    fn get_script(&self) -> ScriptBuf {
+        self.script_pubkey()
+    }
+}
+
+impl AddressOrScript for ScriptBuf {
+    fn get_script(&self) -> ScriptBuf {
+        self.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("ParseError: {0}")]
@@ -347,11 +363,11 @@ impl BtcWallet {
 
     pub fn create_tx(
         &mut self,
-        addr: &Address,
+        addr_or_script: &impl AddressOrScript,
         amount: u64,
         fee_rate: f64,
     ) -> Result<Transaction, Error> {
-        self.create_tx_sighash_type(addr, amount, fee_rate, None)
+        self.create_tx_sighash_type(addr_or_script.get_script(), amount, fee_rate, None)
     }
 
     /// SINGLE+ANYONE_CAN_PAY sighashタイプを使用してトランザクションを作成する
@@ -359,12 +375,12 @@ impl BtcWallet {
     /// この署名タイプは、特定の入力のみを署名し、他の入力の変更を許可します
     pub fn create_tx_single_anypay(
         &mut self,
-        addr: &Address,
+        addr_or_script: &impl AddressOrScript,
         amount: u64,
         fee_rate: f64,
     ) -> Result<Transaction, Error> {
         self.create_tx_sighash_type(
-            addr,
+            addr_or_script.get_script(),
             amount,
             fee_rate,
             Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
@@ -373,7 +389,7 @@ impl BtcWallet {
 
     fn create_tx_sighash_type(
         &mut self,
-        addr: &Address,
+        script: ScriptBuf,
         amount: u64,
         fee_rate: f64,
         sighash_type: Option<bitcoin::TapSighashType>,
@@ -385,7 +401,7 @@ impl BtcWallet {
         let fee_rate = FeeRate::from_sat_per_kwu((fee_rate * 1000.0 / 4.0) as u64);
 
         self.wallet
-            .create_tx(addr, amount, fee_rate, sighash_type)
+            .create_tx(script, amount, fee_rate, sighash_type)
             .map_err(|e| log_err!(Error::Wallet(Box::new(e)), "create_tx_sighash_type"))
     }
 
@@ -397,12 +413,13 @@ impl BtcWallet {
 
     pub fn fetch_script_history(
         &self,
-        script: &ScriptBuf,
+        addr_or_script: &impl AddressOrScript,
         only_confirmed: bool,
     ) -> Result<Vec<ScriptHistory>, Error> {
+        let script = addr_or_script.get_script();
         let history = self
             .rpc
-            .get_script_history(script)
+            .get_script_history(&script)
             .map_err(|e| log_err!(Error::Backend(e), "get_script_histories: {}", script))?;
 
         let history: Vec<ScriptHistory> = history

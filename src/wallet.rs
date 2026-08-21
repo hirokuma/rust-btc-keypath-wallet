@@ -4,7 +4,7 @@ use bdk_wallet::{
     AddressInfo, Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError,
     PersistedWallet, SignOptions, Update, Wallet as BdkWallet,
     bitcoin::{
-        self, Address, Amount, FeeRate, Network, NetworkKind, Transaction,
+        self, Amount, FeeRate, Network, NetworkKind, ScriptBuf, Transaction,
         bip32::{self, Xpriv},
         psbt::ExtractTxError,
     },
@@ -167,13 +167,13 @@ impl Wallet {
 
     pub fn create_tx(
         &mut self,
-        addr: &Address,
+        script_pubkey: ScriptBuf,
         amount: Amount,
         fee_rate: FeeRate,
         sighash_type: Option<bitcoin::TapSighashType>,
     ) -> Result<Transaction, WalletError> {
         let mut builder = self.wallet.build_tx();
-        builder.add_recipient(addr.script_pubkey(), amount);
+        builder.add_recipient(script_pubkey, amount);
         let mut allow_all_sighashes = false;
 
         // sighash_typeが指定された場合、すべてのsighashを許可する
