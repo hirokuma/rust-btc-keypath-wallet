@@ -2,7 +2,7 @@
 edition = "2024"
 license = "MIT"
 name = "btc_wallet"
-version = "0.4.0"
+version = "0.5.0"
 
 [dependencies]
 wallet_utils = { git = "https://github.com/hirokuma/rust-wallet-utils.git", version = "0.1.1" }
@@ -15,13 +15,13 @@ chacha20poly1305 = "0.11.0"
 hex = "0.4.3"
 serde = {version = "1.0.229", features = ["derive"]}
 tempfile = "3.27.0"
-thiserror = "2.0.19"
+thiserror = "2.0.20"
 toml = "1.1.4"
 tracing = "0.1.44"
-wincode = {version = "0.6.0", features = ["derive"]}
+wincode = {version = "0.6.1", features = ["derive"]}
 zeroize = "1.9.0"
 
 [dev-dependencies]
 anyhow = "1.0.104"
-clap = {version = "4.6.5", features = ["derive"]}
+clap = {version = "4.6.6", features = ["derive"]}
 tracing-subscriber = {version = "0.3.23", features = ["env-filter"]}
